@@ -1,7 +1,15 @@
 import os
 import json
-from typing import List, Dict, Any
-from graph.state import PipelineState, TriageOutput, SemgrepFinding
+import warnings
+
+# Suppress known third-party library warnings that are outside our control:
+# - FutureWarning from google-api-core / google-auth about Python 3.9 EOL
+# - NotOpenSSLWarning from urllib3 v2 (LibreSSL vs OpenSSL)
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"google\..*")
+warnings.filterwarnings("ignore", message=r".*NotOpenSSLWarning.*", category=Warning)
+warnings.filterwarnings("ignore", message=r".*urllib3 v2 only supports OpenSSL.*")
+
+from graph.state import PipelineState, TriageOutput
 from tools.e2b_tool import execute_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 
@@ -26,8 +34,8 @@ def get_llm(model_env_var: str, default_model: str):
                 return ChatOpenAI(
                     model=model_name,
                     temperature=0,
-                    openai_api_base=base_url,
-                    openai_api_key=api_key
+                    base_url=base_url,
+                    api_key=api_key
                 )
             return ChatOpenAI(model=model_name, temperature=0)
         except ImportError:
@@ -89,7 +97,7 @@ def developer_agent(state: PipelineState) -> dict:
         {"role": "user", "content": prompt}
     ]
     
-    llm = get_llm("DEVELOPER_MODEL", "gemini-1.5-flash")
+    llm = get_llm("DEVELOPER_MODEL", "gemini-2.5-flash-lite")
     response = llm.invoke(messages)
     code = extract_code(response.content)
     
@@ -189,7 +197,7 @@ Evaluate the findings:
         {"role": "user", "content": prompt}
     ]
     
-    llm = get_llm("TRIAGE_MODEL", "gemini-2.0-flash")
+    llm = get_llm("TRIAGE_MODEL", "gemini-2.5-flash")
     structured_llm = llm.with_structured_output(TriageOutput)
     triage_output = structured_llm.invoke(messages)
     score = triage_output.security_score
@@ -259,7 +267,7 @@ Instructions:
         {"role": "user", "content": prompt}
     ]
     
-    llm = get_llm("SYNTHESIZER_MODEL", "gemini-2.0-flash")
+    llm = get_llm("SYNTHESIZER_MODEL", "gemini-2.5-flash")
     response = llm.invoke(messages)
     patched_code = extract_code(response.content)
     

@@ -1,0 +1,79 @@
+from langgraph.graph import StateGraph, START, END
+from graph.state import PipelineState
+from graph.nodes import (
+    developer_agent,
+    e2b_execute,
+    semgrep_scan,
+    triage_agent,
+    synthesizer_agent,
+    e2b_verify,
+    finalize
+)
+from graph.edges import (
+    check_execution_success,
+    check_triage_verdict,
+    check_verify_result
+)
+
+def build_graph():
+    """
+    Constructs and compiles the CodeSentinel LangGraph workflow.
+    """
+    # Create the state graph using PipelineState
+    workflow = StateGraph(PipelineState)
+    
+    # Register all nodes
+    workflow.add_node("developer_agent", developer_agent)
+    workflow.add_node("e2b_execute", e2b_execute)
+    workflow.add_node("semgrep_scan", semgrep_scan)
+    workflow.add_node("triage_agent", triage_agent)
+    workflow.add_node("synthesizer_agent", synthesizer_agent)
+    workflow.add_node("e2b_verify", e2b_verify)
+    workflow.add_node("finalize", finalize)
+    
+    # Wire the entry point and standard edges
+    workflow.add_edge(START, "developer_agent")
+    workflow.add_edge("developer_agent", "e2b_execute")
+    
+    # Wire conditional edge after initial run execution
+    workflow.add_conditional_edges(
+        "e2b_execute",
+        check_execution_success,
+        {
+            "developer_agent": "developer_agent",
+            "semgrep_scan": "semgrep_scan"
+        }
+    )
+    
+    # Semgrep scan moves to triage
+    workflow.add_edge("semgrep_scan", "triage_agent")
+    
+    # Wire conditional edge after triage evaluation
+    workflow.add_conditional_edges(
+        "triage_agent",
+        check_triage_verdict,
+        {
+            "finalize": "finalize",
+            "synthesizer_agent": "synthesizer_agent"
+        }
+    )
+    
+    # Synthesizer moves to E2B verification
+    workflow.add_edge("synthesizer_agent", "e2b_verify")
+    
+    # Wire conditional edge after verification
+    workflow.add_conditional_edges(
+        "e2b_verify",
+        check_verify_result,
+        {
+            "semgrep_scan": "semgrep_scan",
+            "synthesizer_agent": "synthesizer_agent",
+            "finalize": "finalize"
+        }
+    )
+    
+    # Finalize to END
+    workflow.add_edge("finalize", END)
+    
+    # Compile and return graph
+    return workflow.compile()

@@ -1,14 +1,39 @@
 import os
 import json
 from typing import List, Dict, Any
-from langchain_google_genai import ChatGoogleGenerativeAI
 from graph.state import PipelineState, TriageOutput, SemgrepFinding
 from tools.e2b_tool import execute_nodejs_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 
-# Initialize LLM with Gemini 2.0 Flash
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-structured_llm = llm.with_structured_output(TriageOutput)
+def get_llm(model_env_var: str, default_model: str):
+    """
+    Resolves model name from environment variable and returns configured LangChain LLM instance.
+    """
+    model_name = os.environ.get(model_env_var, default_model)
+    
+    if model_name.startswith("gemini-"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=model_name, temperature=0)
+    else:
+        # Fallback to OpenAI-compatible interface (OpenRouter/Groq/OpenAI)
+        try:
+            from langchain_openai import ChatOpenAI
+            
+            # Direct configuration for OpenRouter
+            if "openrouter" in model_name or os.environ.get("OPENROUTER_API_KEY"):
+                base_url = "https://openrouter.ai/api/v1"
+                api_key = os.environ.get("OPENROUTER_API_KEY")
+                return ChatOpenAI(
+                    model=model_name,
+                    temperature=0,
+                    openai_api_base=base_url,
+                    openai_api_key=api_key
+                )
+            return ChatOpenAI(model=model_name, temperature=0)
+        except ImportError:
+            raise ImportError(
+                f"To use model '{model_name}', you must install the 'langchain-openai' package in your environment."
+            )
 
 def extract_code(text: str) -> str:
     """
@@ -63,6 +88,7 @@ def developer_agent(state: PipelineState) -> dict:
         {"role": "user", "content": prompt}
     ]
     
+    llm = get_llm("DEVELOPER_MODEL", "gemini-1.5-flash")
     response = llm.invoke(messages)
     code = extract_code(response.content)
     
@@ -159,6 +185,8 @@ Evaluate the findings:
         {"role": "user", "content": prompt}
     ]
     
+    llm = get_llm("TRIAGE_MODEL", "gemini-2.0-flash")
+    structured_llm = llm.with_structured_output(TriageOutput)
     triage_output = structured_llm.invoke(messages)
     score = triage_output.security_score
     
@@ -226,6 +254,7 @@ Instructions:
         {"role": "user", "content": prompt}
     ]
     
+    llm = get_llm("SYNTHESIZER_MODEL", "gemini-2.0-flash")
     response = llm.invoke(messages)
     patched_code = extract_code(response.content)
     

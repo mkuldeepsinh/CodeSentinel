@@ -11,11 +11,16 @@ LangChain/LangGraph auto-traces all LLM calls when:
 This module provides:
   - setup_tracing()     — call once at app startup to validate & log tracing state
   - get_run_metadata()  — returns a metadata dict to tag pipeline runs
-  - trace_node          — @traceable decorator wrapper for per-node span labeling
+  - get_run_tags()      — returns list of tags for dashboard filtering
 """
 
 import os
+import warnings
 import logging
+
+# Suppress LangSmith warnings — we handle missing-key gracefully ourselves
+warnings.filterwarnings("ignore", message=r".*LangSmithMissingAPIKeyWarning.*")
+warnings.filterwarnings("ignore", category=Warning, module=r"langsmith\..*")
 
 logger = logging.getLogger("codesentinel.tracing")
 
@@ -36,9 +41,11 @@ def setup_tracing() -> bool:
         return False
 
     if not api_key:
+        # Actively disable so LangGraph's background tracer thread never fires
+        os.environ["LANGCHAIN_TRACING_V2"] = "false"
         logger.warning(
             "LANGCHAIN_TRACING_V2=true but LANGCHAIN_API_KEY is not set. "
-            "Tracing will be silently skipped. Get your key at: https://smith.langchain.com/settings"
+            "Tracing disabled. Get your key at: https://smith.langchain.com/settings"
         )
         return False
 

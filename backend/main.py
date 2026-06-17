@@ -9,8 +9,9 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 from graph.graph import build_graph
+from tracing import setup_tracing, get_run_metadata, get_run_tags
 
-# Load environment variables
+# Load environment variables first so tracing vars are available
 load_dotenv()
 
 # Setup request model
@@ -21,6 +22,8 @@ class GenerateRequest(BaseModel):
 # Lifespan manager to compile the graph once at startup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialise LangSmith tracing (validates key, logs status)
+    app.state.tracing_active = setup_tracing()
     # Compile graph once at startup
     app.state.graph = build_graph()
     yield
@@ -47,15 +50,19 @@ async def health():
     Health check endpoint returning state of application.
     """
     graph_ready = hasattr(app.state, "graph") and app.state.graph is not None
+    tracing_active = getattr(app.state, "tracing_active", False)
     return {
         "status": "ok",
-        "graph_ready": graph_ready
+        "graph_ready": graph_ready,
+        "langsmith_tracing": tracing_active,
+        "langsmith_project": os.environ.get("LANGCHAIN_PROJECT", "CodeSentinel"),
     }
 
 async def event_generator(prompt: str, language: str):
     """
     Executes the compiled LangGraph and yields SSE events:
     node_start, node_end, done, error.
+    Each run is tagged with LangSmith metadata for dashboard visibility.
     """
     initial_state = {
         "user_prompt": prompt,
@@ -74,12 +81,19 @@ async def event_generator(prompt: str, language: str):
         "score_history": [],
         "audit_trail": []
     }
+
+    # Build LangSmith run config — tags + metadata show up in the dashboard
+    run_config = {
+        "tags": get_run_tags(language),
+        "metadata": get_run_metadata(prompt, language),
+    }
     
     state_accumulator = dict(initial_state)
-    
+
     try:
         # Stream events using LangGraph's astream_events API
-        async for event in app.state.graph.astream_events(initial_state, version="v2"):
+        # run_config injects LangSmith tags + metadata into every trace
+        async for event in app.state.graph.astream_events(initial_state, version="v2", config=run_config):
             event_type = event.get("event")
             name = event.get("name")
             data = event.get("data", {})

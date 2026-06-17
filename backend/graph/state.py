@@ -18,6 +18,7 @@ class TriageOutput(BaseModel):
     reasoning: str = Field(description="Explanation and justification for the verdict and security score")
 
 class PipelineState(TypedDict):
+    project_id: Optional[str]
     user_prompt: str
     language: str
     current_code: str
@@ -34,3 +35,4 @@ class PipelineState(TypedDict):
     stage_events: Annotated[List[dict], operator.add]
     score_history: Annotated[List[int], operator.add]
     audit_trail: Annotated[List[dict], operator.add]
+

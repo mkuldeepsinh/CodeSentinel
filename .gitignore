@@ -21,3 +21,7 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Local databases
+*.db
+

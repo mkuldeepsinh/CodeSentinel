@@ -15,7 +15,7 @@ from graph.edges import (
     check_verify_result
 )
 
-def build_graph():
+def build_graph(checkpointer=None):
     """
     Constructs and compiles the CodeSentinel LangGraph workflow.
     """
@@ -76,4 +76,4 @@ def build_graph():
     workflow.add_edge("finalize", END)
     
     # Compile and return graph
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)

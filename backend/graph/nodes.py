@@ -12,6 +12,9 @@ warnings.filterwarnings("ignore", message=r".*urllib3 v2 only supports OpenSSL.*
 from graph.state import PipelineState, TriageOutput
 from tools.e2b_tool import execute_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
+import uuid
+from database import create_project, get_best_generation, create_generation
+from embeddings import get_embedding
 
 def get_llm(model_env_var: str, default_model: str):
     """
@@ -61,6 +64,7 @@ def developer_agent(state: PipelineState) -> dict:
     """
     Writes code based on the user requirement and language.
     If execution fails, it uses stderr feedback to fix runtime errors.
+    If project_id is provided, it loads and leverages context from the best past generation.
     """
     retries = state.get("dev_retries", 0) + 1
     user_prompt = state["user_prompt"]
@@ -68,6 +72,24 @@ def developer_agent(state: PipelineState) -> dict:
     execution_stderr = state.get("execution_stderr", "")
     language = state.get("language", "javascript")
     
+    project_id = state.get("project_id")
+    if not project_id:
+        project_id = f"project_{str(uuid.uuid4())[:8]}"
+        
+    best_past_code = ""
+    best_past_score = 0
+    best_past_findings = []
+    
+    # Load past memory context if project exists
+    best_gen = get_best_generation(project_id)
+    if best_gen:
+        best_past_code = best_gen["code"]
+        best_past_score = best_gen["security_score"]
+        best_past_findings = best_gen["findings"]
+        # If this is a new run starting on an existing project, pre-populate code
+        if not current_code:
+            current_code = best_past_code
+
     if retries > 1 and execution_stderr:
         prompt = (
             f"The previous execution failed with the following error:\n"
@@ -76,6 +98,17 @@ def developer_agent(state: PipelineState) -> dict:
             f"```{language}\n{current_code}\n```\n\n"
             f"Please fix the bugs and provide the complete corrected {language} code. "
             f"Return ONLY the code without explanations."
+        )
+    elif best_past_code:
+        prompt = (
+            f"You are updating/refining a project. Here is the best previous implementation:\n"
+            f"```{language}\n{best_past_code}\n```\n\n"
+            f"It achieved a security score of {best_past_score}/100.\n"
+            f"Previously identified security findings to address (if any):\n"
+            f"```json\n{json.dumps(best_past_findings, indent=2)}\n```\n\n"
+            f"Please update and refine the code to satisfy the requirement: {user_prompt}\n"
+            f"Ensure all functionality is preserved while addressing findings/updates. "
+            f"Return ONLY the complete updated {language} code without explanations."
         )
     else:
         prompt = (
@@ -108,6 +141,7 @@ def developer_agent(state: PipelineState) -> dict:
     }
     
     return {
+        "project_id": project_id,
         "current_code": code,
         "dev_retries": retries,
         "stage_events": [event]
@@ -307,16 +341,52 @@ def e2b_verify(state: PipelineState) -> dict:
 
 def finalize(state: PipelineState) -> dict:
     """
-    Sets the final code and logs pipeline completion.
+    Sets the final code, saves the project and generation run to long-term memory,
+    and logs pipeline completion.
     """
     final_code = state["current_code"]
+    project_id = state.get("project_id") or f"project_{str(uuid.uuid4())[:8]}"
+    score = state.get("security_score", 0)
+    
+    triage = state.get("triage_output")
+    findings = []
+    if triage:
+        if hasattr(triage, "findings_to_fix"):
+            findings = [f.model_dump() if hasattr(f, "model_dump") else f for f in triage.findings_to_fix]
+        elif isinstance(triage, dict) and "findings_to_fix" in triage:
+            findings = triage["findings_to_fix"]
+            
+    # Try saving to long-term database (Postgres or SQLite fallback)
+    try:
+        # Create/Update project entry
+        create_project(
+            project_id=project_id,
+            name=f"Project {project_id[:8]}",
+            prompt=state["user_prompt"],
+            language=state.get("language", "javascript")
+        )
+        # Compute embedding for semantic search
+        emb = get_embedding(state["user_prompt"])
+        # Save generation
+        create_generation(
+            project_id=project_id,
+            code=final_code,
+            security_score=score,
+            findings=findings,
+            embedding=emb
+        )
+        db_status = "Saved to long-term memory."
+    except Exception as e:
+        db_status = f"Database save failed: {str(e)}"
+        print(f"finalize node WARNING: {db_status}")
     
     event = {
         "node": "finalize",
-        "message": "Pipeline completed successfully. Code is clean and functional."
+        "message": f"Pipeline completed successfully. Code is clean and functional. {db_status}"
     }
     
     return {
+        "project_id": project_id,
         "final_code": final_code,
         "stage_events": [event]
     }

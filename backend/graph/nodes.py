@@ -2,7 +2,7 @@ import os
 import json
 from typing import List, Dict, Any
 from graph.state import PipelineState, TriageOutput, SemgrepFinding
-from tools.e2b_tool import execute_nodejs_in_sandbox
+from tools.e2b_tool import execute_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 
 def get_llm(model_env_var: str, default_model: str):
@@ -37,7 +37,7 @@ def get_llm(model_env_var: str, default_model: str):
 
 def extract_code(text: str) -> str:
     """
-    Strips markdown code block markers (like ```javascript or ```) from LLM outputs.
+    Strips markdown code block markers (like ```python, ```javascript or ```) from LLM outputs.
     """
     text = text.strip()
     if text.startswith("```"):
@@ -51,26 +51,27 @@ def extract_code(text: str) -> str:
 
 def developer_agent(state: PipelineState) -> dict:
     """
-    Writes Node.js code based on the user requirement.
+    Writes code based on the user requirement and language.
     If execution fails, it uses stderr feedback to fix runtime errors.
     """
     retries = state.get("dev_retries", 0) + 1
     user_prompt = state["user_prompt"]
     current_code = state.get("current_code", "")
     execution_stderr = state.get("execution_stderr", "")
+    language = state.get("language", "javascript")
     
     if retries > 1 and execution_stderr:
         prompt = (
             f"The previous execution failed with the following error:\n"
             f"```\n{execution_stderr}\n```\n\n"
             f"Here is the code that failed:\n"
-            f"```javascript\n{current_code}\n```\n\n"
-            f"Please fix the bugs and provide the complete corrected Node.js code. "
+            f"```{language}\n{current_code}\n```\n\n"
+            f"Please fix the bugs and provide the complete corrected {language} code. "
             f"Return ONLY the code without explanations."
         )
     else:
         prompt = (
-            f"Generate modern Node.js code that satisfies the following requirements:\n"
+            f"Generate modern {language} code that satisfies the following requirements:\n"
             f"```\n{user_prompt}\n```\n\n"
             f"Return ONLY the code without explanations."
         )
@@ -79,10 +80,10 @@ def developer_agent(state: PipelineState) -> dict:
         {
             "role": "system",
             "content": (
-                "You are an expert Node.js developer. Your goal is to write clean, "
-                "syntactically valid, self-contained JavaScript code. "
-                "Return ONLY the executable Node.js code inside or outside a markdown "
-                "javascript block. Do not include explanation text."
+                f"You are an expert {language} developer. Your goal is to write clean, "
+                f"syntactically valid, self-contained code in {language}. "
+                f"Return ONLY the executable code inside or outside a markdown "
+                f"code block. Do not include explanation text."
             )
         },
         {"role": "user", "content": prompt}
@@ -109,7 +110,8 @@ def e2b_execute(state: PipelineState) -> dict:
     Executes the current code inside an E2B Sandbox microVM to test functionality.
     """
     code = state["current_code"]
-    res = execute_nodejs_in_sandbox(code)
+    language = state.get("language", "javascript")
+    res = execute_in_sandbox(code, language)
     
     event = {
         "node": "e2b_execute",
@@ -130,7 +132,8 @@ def semgrep_scan(state: PipelineState) -> dict:
     Runs local Semgrep static analysis scanning on the current code.
     """
     code = state["current_code"]
-    raw_findings = run_semgrep(code)
+    language = state.get("language", "javascript")
+    raw_findings = run_semgrep(code, language)
     normalized = [normalize_finding(f) for f in raw_findings]
     
     event = {
@@ -152,14 +155,15 @@ def triage_agent(state: PipelineState) -> dict:
     code = state["current_code"]
     findings = state.get("raw_semgrep_findings", [])
     user_prompt = state["user_prompt"]
+    language = state.get("language", "javascript")
     
     findings_str = json.dumps(findings, indent=2)
     
-    prompt = f"""You are a DevSecOps Triage Agent. Analyze the following Node.js code written to fulfill this requirement:
+    prompt = f"""You are a DevSecOps Triage Agent. Analyze the following {language} code written to fulfill this requirement:
 Requirement: {user_prompt}
 
 Code:
-```javascript
+```{language}
 {code}
 ```
 
@@ -222,11 +226,12 @@ def synthesizer_agent(state: PipelineState) -> dict:
     triage = state["triage_output"]
     findings = triage.findings_to_fix if triage else []
     reasoning = triage.reasoning if triage else ""
+    language = state.get("language", "javascript")
     
     findings_str = json.dumps([f.model_dump() for f in findings], indent=2)
     
-    prompt = f"""You are a security patch synthesizer agent. Your task is to secure the following Node.js code:
-```javascript
+    prompt = f"""You are a security patch synthesizer agent. Your task is to secure the following {language} code:
+```{language}
 {code}
 ```
 
@@ -239,16 +244,16 @@ Triage Agent Reasoning:
 Instructions:
 1. Fix all identified vulnerabilities.
 2. Ensure you DO NOT break the functionality or requirements of the original code.
-3. Write clean, idiomatic Node.js.
-4. Return ONLY the updated code inside a javascript code block or as raw code. No explanations.
+3. Write clean, idiomatic code.
+4. Return ONLY the updated code inside a code block or as raw code. No explanations.
 """
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are a senior security patch engineer. Patch security vulnerabilities "
-                "in Node.js code while strictly preserving functionality. Return ONLY the code."
+                f"You are a senior security patch engineer. Patch security vulnerabilities "
+                f"in {language} code while strictly preserving functionality. Return ONLY the code."
             )
         },
         {"role": "user", "content": prompt}
@@ -275,7 +280,8 @@ def e2b_verify(state: PipelineState) -> dict:
     Executes patched code in E2B to confirm the fix didn't break functionality.
     """
     code = state["current_code"]
-    res = execute_nodejs_in_sandbox(code)
+    language = state.get("language", "javascript")
+    res = execute_in_sandbox(code, language)
     
     event = {
         "node": "e2b_verify",

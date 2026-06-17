@@ -4,13 +4,22 @@ import subprocess
 import json
 from typing import List, Dict, Any
 
-def run_semgrep(code: str) -> List[dict]:
+LANGUAGE_CONFIG = {
+    "javascript": ".js",
+    "js": ".js",
+    "python": ".py",
+    "py": ".py"
+}
+
+def run_semgrep(code: str, language: str = "javascript") -> List[dict]:
     """
-    Writes the given code to a temporary file, runs Semgrep on it,
-    and returns the raw findings list from the JSON output.
+    Writes the given code to a temporary file of correct extension,
+    runs Semgrep on it, and returns the raw findings list.
     """
-    # Create a temporary file with .js extension so semgrep knows it is JavaScript
-    with tempfile.NamedTemporaryFile(suffix=".js", delete=False, mode='w', encoding='utf-8') as temp:
+    lang = str(language).lower()
+    suffix = LANGUAGE_CONFIG.get(lang, ".js")
+    
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode='w', encoding='utf-8') as temp:
         temp.write(code)
         temp_path = temp.name
 

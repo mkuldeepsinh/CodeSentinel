@@ -354,7 +354,7 @@ export default function Sidebar() {
           </div>
 
           {/* Project list */}
-          <div style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6, marginBottom: 4 }}>
+          <div style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6, marginBottom: 4, maxHeight: "220px", overflowY: "auto" }}>
             {isCreatingProject && (
               <form onSubmit={handleProjectSubmit} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "5px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

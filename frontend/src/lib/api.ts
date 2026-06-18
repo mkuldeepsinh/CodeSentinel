@@ -15,9 +15,11 @@ export interface SemgrepFinding {
   message:  string;
   severity: string;
   line:     number;
+  path?:    string;
   cwe:      string[];
   owasp:    string[];
 }
+
 
 export interface TriageOutput {
   verdict:          string;
@@ -76,10 +78,11 @@ export interface ParsedSSE {
  * We correctly parse `event:` and `data:` as pairs.
  */
 export async function* streamGenerate(
-  prompt:     string,
-  language:   string,
-  projectId?: string,
-  code?:      string,        // user-provided code → skips developer_agent on the backend
+  prompt:         string,
+  language:       string,
+  projectId?:     string,
+  code?:          string,        // user-provided code
+  skipDeveloper?: boolean,
 ): AsyncGenerator<ParsedSSE> {
   const resp = await fetch(`${API_BASE}/api/generate`, {
     method:  "POST",
@@ -87,8 +90,9 @@ export async function* streamGenerate(
     body: JSON.stringify({
       prompt,
       language,
-      project_id: projectId ?? null,
-      code:       code      ?? null,
+      project_id:     projectId ?? null,
+      code:           code      ?? null,
+      skip_developer: skipDeveloper ?? null,
     }),
   });
 
@@ -134,19 +138,19 @@ export async function* streamGenerate(
 // ── REST endpoints ────────────────────────────────────────────────────────────
 
 export async function fetchProjects(): Promise<Project[]> {
-  const resp = await fetch(`${API_BASE}/api/projects`);
+  const resp = await fetch(`${API_BASE}/api/projects`, { cache: "no-store" });
   if (!resp.ok) throw new Error(`fetchProjects: HTTP ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchProject(id: string): Promise<Project> {
-  const resp = await fetch(`${API_BASE}/api/projects/${id}`);
+  const resp = await fetch(`${API_BASE}/api/projects/${id}`, { cache: "no-store" });
   if (!resp.ok) throw new Error(`fetchProject: HTTP ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchGenerations(projectId: string): Promise<Generation[]> {
-  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, { cache: "no-store" });
   if (!resp.ok) throw new Error(`fetchGenerations: HTTP ${resp.status}`);
   return resp.json();
 }

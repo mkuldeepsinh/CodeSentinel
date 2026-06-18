@@ -186,7 +186,7 @@ function generateSecurityReport(params: CreateProjectParams): string {
 
   const findingsText = findings.length > 0
     ? findings
-        .map(f => `- **${f.severity}** \`${f.check_id}\`: ${f.message} (line ${f.line})`)
+        .map(f => `- **${f.severity}** \`${f.check_id}\`${f.path ? ` in \`${f.path}\`` : ""}: ${f.message} (line ${f.line})`)
         .join("\n")
     : "_No vulnerabilities found._";
 
@@ -571,8 +571,29 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       });
 
       if (resp.ok) {
-        await get().switchProject(projectId);
+        // Build updated project tree locally first for instant UI response
+        const updatedProjectNode = buildProjectTreeFromMap(projectId, filesMap);
         
+        // Auto-expand all parent folders of the created file
+        const newExpanded = new Set(get().expandedFolders);
+        newExpanded.add(projectId);
+        const segments = filePath.split("/").filter(Boolean);
+        for (let i = 0; i < segments.length - 1; i++) {
+          const folderId = `${projectId}/${segments.slice(0, i + 1).join("/")}`;
+          newExpanded.add(folderId);
+        }
+
+        set(s => {
+          const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
+          const newTree = existingIdx >= 0
+            ? s.fileTree.map((n, i) => i === existingIdx ? updatedProjectNode : n)
+            : [...s.fileTree, updatedProjectNode];
+          return {
+            fileTree: newTree,
+            expandedFolders: newExpanded,
+          };
+        });
+
         const ext = filePath.split(".").pop() || "";
         const cmLang = LANG_EXT[ext] ? ext : "plaintext";
         get().openFile({
@@ -652,29 +673,47 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const { projectId, language, finalCode, auditTrail, scoreHistory } = params;
     const langKey      = language.toLowerCase();
     
-    // Check if finalCode is already JSON
+    // Check if finalCode is already JSON and parse it
     let isJson = false;
+    let filesMap: Record<string, string> = {};
     try {
       const parsed = JSON.parse(finalCode);
       if (parsed && typeof parsed === "object" && parsed.files) {
         isJson = true;
+        filesMap = parsed.files || {};
       }
     } catch {}
 
-    let processedCode = finalCode;
     let targetFileRelativePath = getFileName(language);
 
-    if (!isJson) {
+    if (isJson) {
+      // Find the first file that matches language's extension, or is not metadata
+      const ext = LANG_EXT[langKey];
+      const keys = Object.keys(filesMap);
+      const found = keys.find(
+        k => k.endsWith(`.${ext}`) && !k.startsWith(".sentinel/") && k !== "security_report.md"
+      );
+      if (found) {
+        targetFileRelativePath = found;
+      } else {
+        // Fallback to first non-metadata file
+        const fallback = keys.find(
+          k => !k.startsWith(".sentinel/") && k !== "security_report.md"
+        );
+        if (fallback) {
+          targetFileRelativePath = fallback;
+        }
+      }
+    } else {
       const { tabs, activeTabId } = get();
       const activeTab = tabs.find(t => t.id === activeTabId);
       
       if (activeTab && activeTab.fileId.startsWith(`${projectId}/`) && !activeTab.isLive) {
         targetFileRelativePath = activeTab.fileId.replace(`${projectId}/`, "");
       }
-
+      
       // Load existing files map from the store tree
       const projectNode = get().fileTree.find(n => n.id === projectId);
-      const filesMap: Record<string, string> = {};
       const extractFiles = (node: FileNode) => {
         if (node.type === "file") {
           const relativePath = node.id.replace(`${projectId}/`, "");
@@ -695,18 +734,66 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 
       // Update the targeted file with the generated code
       filesMap[targetFileRelativePath] = finalCode;
+    }
 
-      if (Object.keys(filesMap).length > 0) {
-        processedCode = JSON.stringify({ files: filesMap });
+    // Update chat history inside filesMap if streaming just completed
+    const currentEvents = get().pipelineEvents;
+    if (get().isStreaming) {
+      const doneEventAdded = currentEvents.some(e => e.type === "done" && e.message.includes(projectId));
+      let finalEvents = [...currentEvents];
+      if (!doneEventAdded) {
+        finalEvents.push({
+          id: `evt-${Date.now()}-done`,
+          type: "done",
+          message: `✅ Pipeline complete. Score: ${params.securityScore}/100. Files saved to project "${projectId}".`,
+          timestamp: new Date()
+        });
+      }
+      filesMap[".sentinel/chat_history.json"] = JSON.stringify(finalEvents);
+    }
+
+    // Load chat history from filesMap if we are NOT streaming (i.e. loading project)
+    let chatHistoryLoaded = false;
+    if (filesMap[".sentinel/chat_history.json"]) {
+      try {
+        const parsedEvents = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
+        const formattedEvents = parsedEvents.map(evt => ({
+          ...evt,
+          timestamp: new Date(evt.timestamp),
+        }));
+        if (!get().isStreaming) {
+          set({ pipelineEvents: formattedEvents });
+          chatHistoryLoaded = true;
+        }
+      } catch (err) {
+        console.error("Failed to parse chat history:", err);
       }
     }
 
+    if (!chatHistoryLoaded && !get().isStreaming) {
+      set({
+        pipelineEvents: [
+          {
+            id: "sys-0",
+            type: "system",
+            message: `CodeSentinel ready for project "${projectId}". Type a requirement below to start the pipeline.`,
+            timestamp: new Date(),
+          },
+        ]
+      });
+    }
+
+    const reportContent = generateSecurityReport(params);
+    filesMap["security_report.md"] = reportContent;
+    filesMap[".sentinel/audit_trail.json"] = JSON.stringify(auditTrail, null, 2);
+    filesMap[".sentinel/score_history.json"] = JSON.stringify(scoreHistory, null, 2);
+
+    const processedCode = JSON.stringify({ files: filesMap });
     const updatedParams = { ...params, finalCode: processedCode };
     const projectNode = buildProjectTree(updatedParams);
     const codeName = targetFileRelativePath;
-    const codeTabId = `tab-${projectId}-${codeName.replace(/\//g, "-")}`;
-    const reportTabId = `tab-${projectId}-report`;
-    const reportContent = generateSecurityReport(updatedParams);
+    const codeTabId = `tab-${projectId}/${codeName}`;
+    const reportTabId = `tab-${projectId}/security_report.md`;
 
     set(s => {
       const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
@@ -721,7 +808,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         fileId:   `${projectId}/${codeName}`,
         fileName: codeName.split("/").pop() || codeName,
         language: langKey,
-        content:  isJson ? (JSON.parse(finalCode).files[codeName] || "") : finalCode,
+        content:  filesMap[codeName] || "",
         isDirty:  false,
       };
       const reportTab: Tab = {
@@ -755,7 +842,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         selectedFileId:  `${projectId}/${codeName}`,
         expandedFolders: newExpanded,
         language:        langLabel(langKey),
-        liveCode:        isJson ? (JSON.parse(finalCode).files[codeName] || "") : finalCode,
+        liveCode:        filesMap[codeName] || "",
         liveLanguage:    langKey,
         auditTrail:      params.auditTrail,
         scoreHistory:    params.scoreHistory,
@@ -835,7 +922,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
           newExpanded.add(projectId);
 
           const readmeTab: Tab = {
-            id:       `tab-${projectId}-readme`,
+            id:       `tab-${projectId}/README.md`,
             fileId:   `${projectId}/README.md`,
             fileName: "README.md",
             language: "markdown",
@@ -854,9 +941,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         return;
       }
 
-      // Best = highest security_score; newest as tiebreaker
-      const best = [...generations].sort(
-        (a, b) => b.security_score - a.security_score || b.created_at.localeCompare(a.created_at)
+      // Load the latest generation (representing the current workspace state)
+      const latest = [...generations].sort(
+        (a, b) => b.created_at.localeCompare(a.created_at)
       )[0];
 
       // Score history oldest→newest
@@ -868,13 +955,13 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         projectId,
         prompt:        project.prompt,
         language:      project.language,
-        finalCode:     best.code,
+        finalCode:     latest.code,
         auditTrail:    [],
         scoreHistory,
-        securityScore: best.security_score,
-        verdict:       best.security_score === 100 ? "clean" : "fix",
-        reasoning:     `Loaded from saved generation (score: ${best.security_score}/100).`,
-        findings:      best.findings ?? [],
+        securityScore: latest.security_score,
+        verdict:       latest.security_score === 100 ? "clean" : "fix",
+        reasoning:     `Loaded from saved generation (score: ${latest.security_score}/100).`,
+        findings:      latest.findings ?? [],
       });
     } catch (e) {
       console.error("switchProject failed:", e);

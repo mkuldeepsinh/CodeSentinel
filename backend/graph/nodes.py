@@ -13,7 +13,7 @@ from graph.state import PipelineState, TriageOutput
 from tools.e2b_tool import execute_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 import uuid
-from database import create_project, get_best_generation, create_generation
+from database import create_project, get_best_generation, get_latest_generation, create_generation
 from embeddings import get_embedding
 
 def get_llm(model_env_var: str, default_model: str):
@@ -60,11 +60,79 @@ def extract_code(text: str) -> str:
             text = text[:-3].strip()
     return text
 
+def get_default_filename(language: str) -> str:
+    lang = str(language).lower()
+    if lang == "python":
+        return "main.py"
+    elif lang in ["typescript", "ts"]:
+        return "index.ts"
+    elif lang in ["go", "golang"]:
+        return "main.go"
+    elif lang == "rust":
+        return "main.rs"
+    else:
+        return "index.js"
+
+def format_files_for_prompt(code: str, language: str) -> str:
+    """
+    Formats the workspace files map (JSON) or raw code into a clean text prompt context.
+    """
+    if not code or not code.strip():
+        return "Workspace is empty. No files exist yet."
+        
+    try:
+        data = json.loads(code)
+        if isinstance(data, dict) and "files" in data:
+            files = data["files"]
+            output = "Here is the current workspace files structure and their contents:\n\n"
+            output += "Files:\n"
+            for filepath in files.keys():
+                output += f"- {filepath}\n"
+            output += "\n---\n\n"
+            for filepath, content in files.items():
+                output += f"File: `{filepath}`\n"
+                output += f"```{language}\n{content}\n```\n\n"
+            return output
+    except Exception:
+        pass
+        
+    return f"Current code:\n```{language}\n{code}\n```"
+
+def extract_json_files(content: str, default_filename: str) -> str:
+    """
+    Parses content to ensure it's a valid JSON files structure.
+    If it's raw code, we wrap it in a default file mapping for backward compatibility.
+    """
+    cleaned = content.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+    
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict) and "files" in data:
+            return json.dumps(data)
+    except Exception:
+        pass
+        
+    # Fallback to single file mapping
+    return json.dumps({
+        "files": {
+            default_filename: extract_code(content)
+        }
+    })
+
+
 def developer_agent(state: PipelineState) -> dict:
     """
     Writes code based on the user requirement and language.
     If execution fails, it uses stderr feedback to fix runtime errors.
     If project_id is provided, it loads and leverages context from the best past generation.
+    Supports multi-file projects using a structured JSON layout.
     """
     retries = state.get("dev_retries", 0) + 1
     user_prompt = state["user_prompt"]
@@ -81,58 +149,66 @@ def developer_agent(state: PipelineState) -> dict:
     best_past_findings = []
     
     # Load past memory context if project exists
-    best_gen = get_best_generation(project_id)
-    if best_gen:
-        best_past_code = best_gen["code"]
-        best_past_score = best_gen["security_score"]
-        best_past_findings = best_gen["findings"]
+    latest_gen = get_latest_generation(project_id)
+    if latest_gen:
+        best_past_code = latest_gen["code"]
+        best_past_score = latest_gen["security_score"]
+        best_past_findings = latest_gen["findings"]
         # If this is a new run starting on an existing project, pre-populate code
         if not current_code:
             current_code = best_past_code
+
+    # Extract dynamic file context
+    code_context = format_files_for_prompt(current_code or best_past_code, language)
+    default_filename = get_default_filename(language)
 
     if retries > 1 and execution_stderr:
         prompt = (
             f"The previous execution failed with the following error:\n"
             f"```\n{execution_stderr}\n```\n\n"
-            f"Here is the code that failed:\n"
-            f"```{language}\n{current_code}\n```\n\n"
-            f"Please fix the bugs and provide the complete corrected {language} code. "
-            f"Return ONLY the code without explanations."
+            f"{code_context}\n\n"
+            f"Please fix the bugs, adjust the file contents, and return the complete corrected JSON files map matching the requested schema."
         )
     elif best_past_code:
         prompt = (
-            f"You are updating/refining a project. Here is the best previous implementation:\n"
-            f"```{language}\n{best_past_code}\n```\n\n"
-            f"It achieved a security score of {best_past_score}/100.\n"
+            f"You are updating/refining a project. Here is the current project files layout and context:\n"
+            f"{code_context}\n\n"
+            f"The project previously achieved a security score of {best_past_score}/100.\n"
             f"Previously identified security findings to address (if any):\n"
             f"```json\n{json.dumps(best_past_findings, indent=2)}\n```\n\n"
-            f"Please update and refine the code to satisfy the requirement: {user_prompt}\n"
+            f"Please update, refine, or add code to satisfy the requirement: {user_prompt}\n"
             f"Ensure all functionality is preserved while addressing findings/updates. "
-            f"Return ONLY the complete updated {language} code without explanations."
+            f"Return the complete updated JSON files map matching the requested schema."
         )
     else:
         prompt = (
-            f"Generate modern {language} code that satisfies the following requirements:\n"
+            f"Generate code files that satisfy the following requirements:\n"
             f"```\n{user_prompt}\n```\n\n"
-            f"Return ONLY the code without explanations."
+            f"Return the files map matching the requested JSON schema."
         )
         
+    system_prompt = (
+        f"You are an expert {language} developer. Your goal is to write clean, "
+        f"syntactically valid, self-contained code in {language}.\n\n"
+        f"IMPORTANT: You must return your response as a valid JSON object matching the schema below. "
+        f"Do not include any explanation or markdown wrapping outside of the JSON block.\n\n"
+        f"JSON Response Schema:\n"
+        f"{{\n"
+        f"  \"files\": {{\n"
+        f"    \"path/to/file1.ext\": \"file1 content\",\n"
+        f"    \"path/to/file2.ext\": \"file2 content\"\n"
+        f"  }}\n"
+        f"}}\n"
+    )
+
     messages = [
-        {
-            "role": "system",
-            "content": (
-                f"You are an expert {language} developer. Your goal is to write clean, "
-                f"syntactically valid, self-contained code in {language}. "
-                f"Return ONLY the executable code inside or outside a markdown "
-                f"code block. Do not include explanation text."
-            )
-        },
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt}
     ]
     
     llm = get_llm("DEVELOPER_MODEL", "gemini-2.5-flash-lite")
     response = llm.invoke(messages)
-    code = extract_code(response.content)
+    code = extract_json_files(response.content, default_filename)
     
     event = {
         "node": "developer_agent",
@@ -271,11 +347,11 @@ def synthesizer_agent(state: PipelineState) -> dict:
     language = state.get("language", "javascript")
     
     findings_str = json.dumps([f.model_dump() for f in findings], indent=2)
-    
-    prompt = f"""You are a security patch synthesizer agent. Your task is to secure the following {language} code:
-```{language}
-{code}
-```
+    code_context = format_files_for_prompt(code, language)
+    default_filename = get_default_filename(language)
+
+    prompt = f"""You are a security patch synthesizer agent. Your task is to secure the code in this workspace:
+{code_context}
 
 The Triage Agent identified the following real security vulnerabilities that you must fix:
 {findings_str}
@@ -284,26 +360,34 @@ Triage Agent Reasoning:
 {reasoning}
 
 Instructions:
-1. Fix all identified vulnerabilities.
+1. Fix all identified vulnerabilities in their respective files.
 2. Ensure you DO NOT break the functionality or requirements of the original code.
 3. Write clean, idiomatic code.
-4. Return ONLY the updated code inside a code block or as raw code. No explanations.
+4. Return ONLY the updated code files map as a valid JSON object matching the schema.
 """
 
+    system_prompt = (
+        f"You are a senior security patch engineer. Patch security vulnerabilities "
+        f"in {language} code while strictly preserving functionality.\n\n"
+        f"IMPORTANT: You must return your response as a valid JSON object matching the schema below. "
+        f"Do not include any explanation or markdown wrapping outside of the JSON block.\n\n"
+        f"JSON Response Schema:\n"
+        f"{{\n"
+        f"  \"files\": {{\n"
+        f"    \"path/to/file1.ext\": \"file1 content\",\n"
+        f"    \"path/to/file2.ext\": \"file2 content\"\n"
+        f"  }}\n"
+        f"}}\n"
+    )
+
     messages = [
-        {
-            "role": "system",
-            "content": (
-                f"You are a senior security patch engineer. Patch security vulnerabilities "
-                f"in {language} code while strictly preserving functionality. Return ONLY the code."
-            )
-        },
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt}
     ]
     
     llm = get_llm("SYNTHESIZER_MODEL", "gemini-2.5-flash")
     response = llm.invoke(messages)
-    patched_code = extract_code(response.content)
+    patched_code = extract_json_files(response.content, default_filename)
     
     event = {
         "node": "synthesizer_agent",

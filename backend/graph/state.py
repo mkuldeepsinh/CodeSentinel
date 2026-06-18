@@ -8,6 +8,7 @@ class SemgrepFinding(BaseModel):
     message: str = Field(description="The description of the vulnerability finding")
     severity: str = Field(description="The severity level of the finding: ERROR, WARNING, or INFO")
     line: int = Field(description="The line number where the finding was detected")
+    path: Optional[str] = Field(default=None, description="The file path relative to project root where the finding was detected")
     cwe: List[str] = Field(default_factory=list, description="List of CWE identifiers associated with the finding")
     owasp: List[str] = Field(default_factory=list, description="List of OWASP category identifiers associated with the finding")
 

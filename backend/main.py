@@ -33,6 +33,7 @@ class GenerateRequest(BaseModel):
     prompt: Optional[str] = None
     language: str = "javascript"
     code: Optional[str] = None  # user-provided code to analyse (skips developer_agent)
+    skip_developer: Optional[bool] = None
 
 # Lifespan manager to compile the graph once at startup
 @asynccontextmanager
@@ -102,24 +103,26 @@ async def health():
         "langsmith_project": os.environ.get("LANGCHAIN_PROJECT", "CodeSentinel"),
     }
 
-async def event_generator(prompt: str, language: str, project_id: str, code: str = ""):
+async def event_generator(prompt: str, language: str, project_id: str, code: str = "", skip_developer: Optional[bool] = None):
     """
     Executes the compiled LangGraph and yields SSE events.
     When `code` is provided the developer_agent is skipped and the pipeline
     starts directly at semgrep_scan (security-only mode).
     """
     user_provided_code = bool(code and code.strip())
+    should_skip = skip_developer if skip_developer is not None else user_provided_code
+    
     initial_state = {
         "project_id": project_id,
         "user_prompt": prompt,
         "language": language,
         "current_code": code if user_provided_code else "",
-        "skip_developer": user_provided_code,
+        "skip_developer": should_skip,
         "execution_stdout": "",
         "execution_stderr": "",
         # Mark execution as successful so check_execution_success skips to semgrep_scan
         # when the user provides their own code (they are responsible for it running).
-        "execution_success": user_provided_code,
+        "execution_success": should_skip,
         "dev_retries": 0,
         "raw_semgrep_findings": [],
         "triage_output": None,
@@ -296,7 +299,7 @@ async def generate(request: GenerateRequest):
         print(f"main.py WARNING: Failed to write initial project to database: {e}")
         
     return StreamingResponse(
-        event_generator(resolved_prompt, resolved_language, resolved_project_id, code=request.code or ""),
+        event_generator(resolved_prompt, resolved_language, resolved_project_id, code=request.code or "", skip_developer=request.skip_developer),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no"}
     )

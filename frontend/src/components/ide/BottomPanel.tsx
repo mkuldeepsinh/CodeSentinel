@@ -1,6 +1,6 @@
 "use client";
 
-import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams } from "@/store/ideStore";
+import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams, FileNode } from "@/store/ideStore";
 import { streamGenerate } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
@@ -143,12 +143,9 @@ function EventMessage({ event }: { event: PipelineEvent }) {
 
   if (isUser) {
     return (
-      <div className="cli-msg user">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600 }}>You</span>
-          <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
-        </div>
-        <div style={{ color: "var(--text-primary)" }}>{event.message}</div>
+      <div className="cli-msg user" style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--text-primary)", display: "flex", gap: 6, alignItems: "flex-start", margin: "4px 0" }}>
+        <span style={{ color: "var(--accent-blue)", fontWeight: 600, userSelect: "none" }}>$›</span>
+        <div style={{ wordBreak: "break-all" }}>{event.message}</div>
       </div>
     );
   }
@@ -295,7 +292,7 @@ function AuditTrailPanel() {
                       {f.check_id}
                     </span>
                     <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                      line {f.line} — {f.message}
+                      {f.path ? `${f.path}:` : ""}line {f.line} — {f.message}
                     </span>
                   </div>
                 ))}
@@ -321,12 +318,13 @@ export default function BottomPanel() {
     updateLiveCode, createProjectFiles,
     appendAuditSnapshot, setAuditTrail,
     scanRequest, setScanRequest,
-    activeProjectId, tabs, activeTabId,
+    activeProjectId, tabs, activeTabId, fileTree,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
+  const [confirmData, setConfirmData] = useState<{ prompt: string; fileRelativePath: string } | null>(null);
 
   // Auto-scroll chat log
   useEffect(() => {
@@ -361,8 +359,9 @@ export default function BottomPanel() {
         for await (const { eventType, data } of streamGenerate(
           "Analyse and secure this code",
           language,
-          undefined,
+          activeProjectId || undefined,
           code,
+          true,
         )) {
           processSSEEvent(eventType, data, language);
         }
@@ -513,33 +512,70 @@ export default function BottomPanel() {
     }
   };
 
-  // ── Submit handler ──────────────────────────────────────────────────────────
-  const handleSubmit = async (e?: FormEvent) => {
-    e?.preventDefault();
-    const prompt = currentPrompt.trim();
-    if (!prompt || isStreaming) return;
-
-    const capturedLanguage = currentLanguage; // capture before clearing
-
+  const startGenerationPipeline = async (
+    prompt: string,
+    selectedFileRelativePath?: string,
+    shouldClearCurrentFile?: boolean
+  ) => {
+    const capturedLanguage = currentLanguage;
     setCurrentPrompt("");
     setActivePanelTab("codesentinel");
     setStreaming(true);
-    clearEvents();
 
     addEvent({ type: "user",   message: prompt });
     addEvent({ type: "system", message: "Connecting to CodeSentinel pipeline…" });
 
-    const activeTab = tabs.find(t => t.id === activeTabId);
-    const codeContent = activeTab && activeTab.fileId.startsWith(`${activeProjectId}/`) && !activeTab.isLive
-      ? activeTab.content
-      : undefined;
+    const projectNode = fileTree.find(n => n.id === activeProjectId);
+    const filesMap: Record<string, string> = {};
+    const extractFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${activeProjectId}/`, "");
+        if (
+          relativePath !== "security_report.md" &&
+          !relativePath.startsWith(".sentinel/")
+        ) {
+          if (relativePath === selectedFileRelativePath && shouldClearCurrentFile) {
+            filesMap[relativePath] = "";
+          } else {
+            filesMap[relativePath] = node.content ?? "";
+          }
+        }
+      } else if (node.children) {
+        node.children.forEach(extractFiles);
+      }
+    };
+    if (projectNode) {
+      extractFiles(projectNode);
+    }
+
+    const hasNoFiles = Object.keys(filesMap).length === 0;
+
+    // Build instruction prompt based on whether file is selected or not
+    let finalPrompt = prompt;
+    if (selectedFileRelativePath) {
+      if (shouldClearCurrentFile) {
+        finalPrompt += `\n\n[System Instruction: Regenerate the solution from scratch inside the file "${selectedFileRelativePath}". Make sure the file content starts empty and write the code there.]`;
+      } else {
+        finalPrompt += `\n\n[System Instruction: Edit/refine the existing code inside the file "${selectedFileRelativePath}". Preserve all other files/structure.]`;
+      }
+    } else {
+      // If no file selected, create a new file matching the language's standard name
+      const defaultFileName = capturedLanguage === "python" ? "main.py" : capturedLanguage === "go" ? "main.go" : capturedLanguage === "rust" ? "main.rs" : capturedLanguage === "typescript" ? "index.ts" : "index.js";
+      if (hasNoFiles) {
+        filesMap[defaultFileName] = "";
+      }
+      finalPrompt += `\n\n[System Instruction: Write the code inside a new file. Use "${defaultFileName}" unless another filename is more appropriate.]`;
+    }
+
+    const codeContent = JSON.stringify({ files: filesMap });
 
     try {
       for await (const { eventType, data } of streamGenerate(
-        prompt,
+        finalPrompt,
         capturedLanguage,
         activeProjectId || undefined,
         codeContent,
+        false, // skipDeveloper = false (run developer_agent!)
       )) {
         processSSEEvent(eventType, data, capturedLanguage);
       }
@@ -553,6 +589,37 @@ export default function BottomPanel() {
       setStreaming(false);
       // Refresh project list after pipeline completes
       loadProjects().catch(console.error);
+    }
+  };
+
+  const handleConfirmChoice = (choice: "edit" | "regenerate" | "cancel") => {
+    if (!confirmData) return;
+    const { prompt, fileRelativePath } = confirmData;
+    setConfirmData(null);
+
+    if (choice === "cancel") return;
+
+    startGenerationPipeline(prompt, fileRelativePath, choice === "regenerate");
+  };
+
+  // ── Submit handler ──────────────────────────────────────────────────────────
+  const handleSubmit = async (e?: FormEvent) => {
+    e?.preventDefault();
+    const prompt = currentPrompt.trim();
+    if (!prompt || isStreaming) return;
+
+    // Check if there is a selected file with content
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    const hasSelectedFile = activeTab && activeTab.fileId.startsWith(`${activeProjectId}/`) && !activeTab.isLive && activeTab.fileId !== `${activeProjectId}/security_report.md` && !activeTab.fileId.startsWith(`${activeProjectId}/.sentinel/`);
+    const selectedFileRelativePath = hasSelectedFile ? activeTab.fileId.replace(`${activeProjectId}/`, "") : undefined;
+    const currentContent = activeTab?.content ?? "";
+
+    if (selectedFileRelativePath && currentContent.trim().length > 0) {
+      // Code is present in current file, we must confirm from the user
+      setConfirmData({ prompt, fileRelativePath: selectedFileRelativePath });
+    } else {
+      // Proceed directly
+      startGenerationPipeline(prompt, selectedFileRelativePath, false);
     }
   };
 
@@ -636,6 +703,63 @@ export default function BottomPanel() {
         {/* ── CodeSentinel Tab ── */}
         {activePanelTab === "codesentinel" && (
           <>
+            {confirmData && (
+              <div style={{
+                position: "absolute",
+                bottom: 54,
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "var(--bg-overlay)",
+                border: "1px solid var(--accent-blue)",
+                borderRadius: 8,
+                padding: "14px 18px",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+                zIndex: 1000,
+                width: "92%",
+                maxWidth: 440,
+                backdropFilter: "blur(8px)",
+                animation: "fadeSlideUp 0.2s ease-out forwards",
+              }}>
+                <h4 style={{ margin: "0 0 6px 0", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+                  Code Present in {confirmData.fileRelativePath}
+                </h4>
+                <p style={{ margin: "0 0 14px 0", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  This file already contains code. Do you want to build on top of this code (Edit) or generate a new solution from scratch (Regenerate)?
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => handleConfirmChoice("cancel")}
+                    style={{
+                      background: "none", border: "1px solid var(--border-subtle)", borderRadius: 5,
+                      color: "var(--text-secondary)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleConfirmChoice("regenerate")}
+                    style={{
+                      background: "none", border: "1px solid var(--accent-yellow)", borderRadius: 5,
+                      color: "var(--accent-yellow)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    Regenerate (Overwrite)
+                  </button>
+                  <button
+                    onClick={() => handleConfirmChoice("edit")}
+                    style={{
+                      background: "rgba(122, 162, 247, 0.15)", border: "1px solid rgba(122, 162, 247, 0.3)", borderRadius: 5,
+                      color: "var(--accent-blue)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
+                      fontWeight: 600, fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    Edit Current Code
+                  </button>
+                </div>
+              </div>
+            )}
             <PipelineProgress />
 
             <div className="cli-log">

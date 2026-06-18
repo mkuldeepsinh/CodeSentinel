@@ -38,9 +38,14 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]["value"];
  * Returns the standard filename for generated output.
  * e.g. getFileName("javascript") → "index.js"
  */
-export function getFileName(language: string, base = "index"): string {
-  const ext = LANG_EXT[language.toLowerCase()] ?? "txt";
-  return `${base}.${ext}`;
+export function getFileName(language: string): string {
+  const lang = language.toLowerCase();
+  if (lang === "python") return "main.py";
+  if (lang === "typescript" || lang === "ts") return "index.ts";
+  if (lang === "go" || lang === "golang") return "main.go";
+  if (lang === "rust") return "main.rs";
+  const ext = LANG_EXT[lang] ?? "js";
+  return `index.${ext}`;
 }
 
 /** Human-readable label for a given language value */

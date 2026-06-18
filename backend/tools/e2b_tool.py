@@ -1,4 +1,5 @@
 import os
+import json
 from e2b import Sandbox
 from dotenv import load_dotenv
 
@@ -44,14 +45,7 @@ def _wrap_server_code(code: str, language: str) -> str:
 def execute_in_sandbox(code: str, language: str = "javascript", timeout: int = DEFAULT_TIMEOUT) -> dict:
     """
     Executes code of any supported language inside E2B sandbox.
-
-    Args:
-        code:     Source code to execute.
-        language: Target language (javascript / python).
-        timeout:  Max seconds before the sandbox command is killed (default 60s).
-
-    Returns:
-        dict with keys: success (bool), stdout (str), stderr (str).
+    Supports single flat code strings or JSON files mappings.
     """
     if not os.environ.get("E2B_API_KEY"):
         return {
@@ -65,16 +59,66 @@ def execute_in_sandbox(code: str, language: str = "javascript", timeout: int = D
     suffix = config["suffix"]
     exec_cmd = config["cmd"]
 
-    sandbox_path = f"/home/user/code{suffix}"
-
-    # Wrap server-type scripts so they self-exit after running their self-test
-    wrapped_code = _wrap_server_code(code, lang)
+    # Check if code is a JSON files map
+    files_map = None
+    try:
+        if code and (code.strip().startswith("{") or code.strip().startswith("[")):
+            data = json.loads(code)
+            if isinstance(data, dict) and "files" in data:
+                files_map = data["files"]
+    except Exception:
+        pass
 
     try:
         with Sandbox.create() as sandbox:
-            sandbox.files.write(sandbox_path, wrapped_code)
+            if files_map:
+                # Resolve entry file
+                entry_file = None
+                possible_entries = ["main.py", "index.js", "index.ts", "main.go", "main.rs", "app.py", "server.js", "app.js"]
+                for f in possible_entries:
+                    if f in files_map:
+                        entry_file = f
+                        break
+                if not entry_file:
+                    # Fallback to the first file that matches the language suffix or the first key
+                    for f in files_map.keys():
+                        if f.endswith(suffix):
+                            entry_file = f
+                            break
+                    if not entry_file:
+                        entry_file = list(files_map.keys())[0] if files_map else f"index{suffix}"
+
+                # Write all files into E2B sandbox
+                for filepath, file_content in files_map.items():
+                    # Ignore sentinel metadata and reports
+                    if filepath == "security_report.md" or filepath.startswith(".sentinel/"):
+                        continue
+                    
+                    sandbox_path = f"/home/user/code/{filepath}"
+                    parent_dir = os.path.dirname(filepath)
+                    
+                    if parent_dir:
+                        sandbox.commands.run(f"mkdir -p /home/user/code/{parent_dir}")
+                    
+                    # Wrap the entry file if it's node/python to auto-exit
+                    if filepath == entry_file:
+                        wrapped = _wrap_server_code(file_content, lang)
+                    else:
+                        wrapped = file_content
+                        
+                    sandbox.files.write(sandbox_path, wrapped)
+                
+                # Execute primary entry file
+                run_path = f"/home/user/code/{entry_file}"
+            else:
+                # Single file fallback
+                sandbox_path = f"/home/user/code{suffix}"
+                wrapped_code = _wrap_server_code(code, lang)
+                sandbox.files.write(sandbox_path, wrapped_code)
+                run_path = sandbox_path
+
             execution = sandbox.commands.run(
-                f"{exec_cmd} {sandbox_path}",
+                f"{exec_cmd} {run_path}",
                 timeout=timeout
             )
 
@@ -87,8 +131,8 @@ def execute_in_sandbox(code: str, language: str = "javascript", timeout: int = D
             if exit_code == 0:
                 success = True
             elif exit_code is None and stdout.strip():
-                success = True   # server printed output then hit timeout gracefully
-                stderr = ""      # don't report timeout as an error
+                success = True
+                stderr = ""
             else:
                 success = False
 

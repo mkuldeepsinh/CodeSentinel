@@ -179,7 +179,7 @@ class TestDeveloperAgentNode(unittest.TestCase):
         state = _base_state()
         result = developer_agent(state)
 
-        self.assertEqual(result["current_code"], "console.log('Hi');")
+        self.assertEqual(result["current_code"], '{"files": {"index.js": "console.log(\'Hi\');"}}')
         self.assertEqual(result["dev_retries"], 1)
         self.assertEqual(len(result["stage_events"]), 1)
         self.assertEqual(result["stage_events"][0]["node"], "developer_agent")
@@ -352,7 +352,7 @@ class TestSynthesizerAgentNode(unittest.TestCase):
         state = _base_state(triage_output=triage)
         result = synthesizer_agent(state)
 
-        self.assertEqual(result["current_code"], patched)
+        self.assertEqual(result["current_code"], '{"files": {"index.js": "// Safe version\\nconst x = sanitize(input);"}}')
         self.assertEqual(result["security_iterations"], 1)
         self.assertEqual(result["stage_events"][0]["node"], "synthesizer_agent")
 

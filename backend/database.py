@@ -298,6 +298,54 @@ def get_best_generation(project_id: str) -> Optional[Dict[str, Any]]:
             return d
         return None
 
+def get_latest_generation(project_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves the most recently created generation for a given project_id.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT * FROM generations 
+                        WHERE project_id = %s 
+                        ORDER BY created_at DESC 
+                        LIMIT 1;
+                        """,
+                        (project_id,)
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        if isinstance(row["findings"], str):
+                            row["findings"] = json.loads(row["findings"])
+                        return row
+                    return None
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL select failed ({e}), using SQLite fallback")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT * FROM generations 
+            WHERE project_id = ? 
+            ORDER BY created_at DESC 
+            LIMIT 1;
+            """,
+            (project_id,)
+        )
+        row = cur.fetchone()
+        if row:
+            d = dict(row)
+            d["findings"] = json.loads(d["findings"])
+            if d.get("embedding"):
+                d["embedding"] = json.loads(d["embedding"])
+            return d
+        return None
+
+
 def find_similar_generation(target_embedding: List[float], threshold: float = 0.95) -> Optional[Dict[str, Any]]:
     """
     Looks across all generations for a prompt whose embedding matches the target

@@ -10,6 +10,7 @@ from graph.nodes import (
     finalize
 )
 from graph.edges import (
+    route_start,
     check_execution_success,
     check_triage_verdict,
     check_verify_result
@@ -31,8 +32,15 @@ def build_graph(checkpointer=None):
     workflow.add_node("e2b_verify", e2b_verify)
     workflow.add_node("finalize", finalize)
     
-    # Wire the entry point and standard edges
-    workflow.add_edge(START, "developer_agent")
+    # Entry point: conditional — skip developer_agent if user provided their own code
+    workflow.add_conditional_edges(
+        START,
+        route_start,
+        {
+            "developer_agent": "developer_agent",
+            "semgrep_scan":    "semgrep_scan"
+        }
+    )
     workflow.add_edge("developer_agent", "e2b_execute")
     
     # Wire conditional edge after initial run execution

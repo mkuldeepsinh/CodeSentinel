@@ -1,7 +1,7 @@
 "use client";
 
 import { useIDEStore, Tab } from "@/store/ideStore";
-import { X, Circle } from "lucide-react";
+import { X, ShieldCheck, Zap } from "lucide-react";
 import CodeEditor from "./CodeEditor";
 
 // ── Language dot color ────────────────────────────────────────────────────────
@@ -14,6 +14,8 @@ function langColor(lang: string) {
     css:        "#bb9af7",
     html:       "#ff9e64",
     markdown:   "#7dcfff",
+    go:         "#73daca",
+    rust:       "#ff9e64",
   };
   return map[lang.toLowerCase()] ?? "var(--text-muted)";
 }
@@ -31,28 +33,36 @@ function TabItem({ tab, isActive }: { tab: Tab; isActive: boolean }) {
       {/* Language dot */}
       <span
         style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: langColor(tab.language),
-          flexShrink: 0,
-          opacity: 0.8,
+          width: 6, height: 6, borderRadius: "50%",
+          background: tab.isLive ? "var(--accent-blue)" : langColor(tab.language),
+          flexShrink: 0, opacity: 0.8,
+          // Pulse animation for live tab
+          animation: tab.isLive ? "pulse 1.5s ease-in-out infinite" : "none",
         }}
       />
 
       {/* Filename */}
       <span style={{ fontSize: 13 }}>{tab.fileName}</span>
 
+      {/* Live badge */}
+      {tab.isLive && (
+        <span style={{
+          fontSize: 9, padding: "1px 4px", borderRadius: 3,
+          background: "rgba(122,162,247,0.15)",
+          border: "1px solid rgba(122,162,247,0.3)",
+          color: "var(--accent-blue)",
+        }}>
+          LIVE
+        </span>
+      )}
+
       {/* Dirty indicator / close */}
-      {tab.isDirty ? (
+      {tab.isDirty && !tab.isLive ? (
         <span className="tab-dot" />
       ) : (
         <span
           className="tab-close"
-          onClick={e => {
-            e.stopPropagation();
-            closeTab(tab.id);
-          }}
+          onClick={e => { e.stopPropagation(); closeTab(tab.id); }}
         >
           <X size={11} strokeWidth={2.5} />
         </span>
@@ -67,7 +77,7 @@ function Breadcrumb({ tab }: { tab: Tab | undefined }) {
 
   const parts = tab.fileId.includes("/")
     ? tab.fileId.split("/")
-    : ["backend", tab.fileName];
+    : [tab.fileName];
 
   return (
     <div className="breadcrumb">
@@ -83,18 +93,79 @@ function Breadcrumb({ tab }: { tab: Tab | undefined }) {
   );
 }
 
+// ── Editor Toolbar (right-aligned actions) ────────────────────────────────────
+function EditorToolbar({ tab }: { tab: Tab }) {
+  const { setScanRequest, setPanelOpen, setActivePanelTab, isStreaming } = useIDEStore();
+
+  const hasContent = tab.content.trim().length > 0;
+  const isLive     = tab.isLive;
+
+  const handleAnalyze = () => {
+    if (!hasContent || isStreaming || isLive) return;
+    // Pass current code to BottomPanel for scanning
+    setScanRequest({ code: tab.content, language: tab.language });
+    setPanelOpen(true);
+    setActivePanelTab("codesentinel");
+  };
+
+  if (!hasContent || isLive) return <div style={{ height: 30 }} />;
+
+  return (
+    <div style={{
+      display:        "flex",
+      alignItems:     "center",
+      justifyContent: "flex-end",
+      gap:            6,
+      padding:        "3px 10px",
+      borderBottom:   "1px solid var(--border-subtle)",
+      flexShrink:     0,
+      background:     "var(--bg-base)",
+    }}>
+      <button
+        id="analyze-code-btn"
+        onClick={handleAnalyze}
+        disabled={isStreaming}
+        title="Scan & secure this code through the CodeSentinel pipeline"
+        style={{
+          display:      "flex",
+          alignItems:   "center",
+          gap:          5,
+          fontSize:     11,
+          padding:      "3px 10px",
+          borderRadius: 5,
+          border:       "1px solid rgba(122,162,247,0.3)",
+          background:   isStreaming ? "none" : "rgba(122,162,247,0.08)",
+          color:        isStreaming ? "var(--text-disabled)" : "var(--accent-blue)",
+          cursor:       isStreaming ? "not-allowed" : "pointer",
+          transition:   "all 0.15s ease",
+          fontFamily:   "var(--font-ui)",
+        }}
+      >
+        {isStreaming
+          ? <Zap size={11} />
+          : <ShieldCheck size={11} />
+        }
+        {isStreaming ? "Pipeline running…" : "Scan & Secure"}
+      </button>
+    </div>
+  );
+}
+
 // ── Empty State ───────────────────────────────────────────────────────────────
 function EmptyEditor() {
+  const { setScanRequest, setPanelOpen, setActivePanelTab } = useIDEStore();
+
   return (
     <div className="editor-placeholder fade-in">
       <div style={{ fontSize: 56, opacity: 0.15, lineHeight: 1 }}>🛡️</div>
       <h2>CodeSentinel</h2>
-      <p style={{ maxWidth: 340, textAlign: "center", lineHeight: 1.6 }}>
-        Open a file from the Explorer, or type a security requirement in the
-        CodeSentinel panel below to start the pipeline.
+      <p style={{ maxWidth: 360, textAlign: "center", lineHeight: 1.6, color: "var(--text-muted)" }}>
+        Type a security requirement in the panel below to generate and harden code,
+        or open a file from the Explorer and click{" "}
+        <strong style={{ color: "var(--accent-blue)" }}>Scan &amp; Secure</strong> to analyse existing code.
       </p>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        {["Python", "TypeScript", "Node.js"].map(lang => (
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", justifyContent: "center" }}>
+        {["JavaScript", "TypeScript", "Python", "Go", "Rust"].map(lang => (
           <span
             key={lang}
             style={{
@@ -109,6 +180,26 @@ function EmptyEditor() {
           </span>
         ))}
       </div>
+      <button
+        onClick={() => { setPanelOpen(true); setActivePanelTab("codesentinel"); setTimeout(() => document.getElementById("cli-input")?.focus(), 50); }}
+        style={{
+          marginTop:    16,
+          padding:      "7px 18px",
+          borderRadius: 6,
+          border:       "1px solid rgba(122,162,247,0.3)",
+          background:   "rgba(122,162,247,0.08)",
+          color:        "var(--accent-blue)",
+          fontSize:     12,
+          cursor:       "pointer",
+          fontFamily:   "var(--font-ui)",
+          display:      "flex",
+          alignItems:   "center",
+          gap:          6,
+        }}
+      >
+        <ShieldCheck size={13} />
+        Start pipeline
+      </button>
     </div>
   );
 }
@@ -129,6 +220,9 @@ export default function EditorZone() {
 
       {/* Breadcrumb */}
       <Breadcrumb tab={activeTab} />
+
+      {/* Analyze toolbar — only when a file is open */}
+      {activeTab && <EditorToolbar tab={activeTab} />}
 
       {/* Editor body */}
       <div className="editor-body">

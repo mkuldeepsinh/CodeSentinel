@@ -1,6 +1,16 @@
 import os
 from graph.state import PipelineState
 
+def route_start(state: PipelineState) -> str:
+    """
+    Entry-point router. When the user submits their own code for analysis
+    (skip_developer=True), bypass developer_agent + e2b_execute entirely and
+    jump directly to semgrep_scan. Otherwise run the full pipeline.
+    """
+    if state.get("skip_developer") and state.get("current_code"):
+        return "semgrep_scan"
+    return "developer_agent"
+
 def check_execution_success(state: PipelineState) -> str:
     """
     Decides whether to retry code generation (on runtime error) or move to scanning.

@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Optional
+from typing import TypedDict, List, Optional, Any
 from typing_extensions import Annotated
 import operator
 from pydantic import BaseModel, Field
@@ -31,6 +31,9 @@ class PipelineState(TypedDict):
     security_score: int
     security_iterations: int
     final_code: str
+    # When True, the START edge skips developer_agent and routes directly to semgrep_scan.
+    # Set by the API when the user submits their own code for analysis.
+    skip_developer: Optional[bool]
     # State fields that accumulate updates
     stage_events: Annotated[List[dict], operator.add]
     score_history: Annotated[List[int], operator.add]

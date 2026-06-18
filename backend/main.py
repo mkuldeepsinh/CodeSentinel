@@ -19,9 +19,7 @@ from database import (
     get_all_projects,
     get_project_generations,
     find_similar_generation,
-    create_project,
-    update_project_dir,
-    get_project_with_generations,
+    create_project
 )
 from embeddings import get_embedding
 
@@ -33,6 +31,7 @@ class GenerateRequest(BaseModel):
     project_id: Optional[str] = None
     prompt: Optional[str] = None
     language: str = "javascript"
+    code: Optional[str] = None  # user-provided code to analyse (skips developer_agent)
 
 # Lifespan manager to compile the graph once at startup
 @asynccontextmanager
@@ -102,20 +101,24 @@ async def health():
         "langsmith_project": os.environ.get("LANGCHAIN_PROJECT", "CodeSentinel"),
     }
 
-async def event_generator(prompt: str, language: str, project_id: str):
+async def event_generator(prompt: str, language: str, project_id: str, code: str = ""):
     """
-    Executes the compiled LangGraph and yields SSE events:
-    node_start, node_end, done, error.
-    Each run is tagged with LangSmith metadata and configured with thread_id memory.
+    Executes the compiled LangGraph and yields SSE events.
+    When `code` is provided the developer_agent is skipped and the pipeline
+    starts directly at semgrep_scan (security-only mode).
     """
+    user_provided_code = bool(code and code.strip())
     initial_state = {
         "project_id": project_id,
         "user_prompt": prompt,
         "language": language,
-        "current_code": "",
+        "current_code": code if user_provided_code else "",
+        "skip_developer": user_provided_code,
         "execution_stdout": "",
         "execution_stderr": "",
-        "execution_success": False,
+        # Mark execution as successful so check_execution_success skips to semgrep_scan
+        # when the user provides their own code (they are responsible for it running).
+        "execution_success": user_provided_code,
         "dev_retries": 0,
         "raw_semgrep_findings": [],
         "triage_output": None,
@@ -134,64 +137,57 @@ async def event_generator(prompt: str, language: str, project_id: str):
         "configurable": {"thread_id": project_id}
     }
     
-    state_accumulator = dict(initial_state)
+    # final_state accumulates node outputs to build the authoritative done payload
+    final_state = dict(initial_state)
+
+    def _serialize(v):
+        """Serialize Pydantic models / lists of models to plain dicts."""
+        if hasattr(v, "model_dump"):
+            return v.model_dump()
+        if isinstance(v, list):
+            return [x.model_dump() if hasattr(x, "model_dump") else x for x in v]
+        return v
+
+    ADDITIVE_KEYS = ("stage_events", "score_history", "audit_trail")
 
     try:
-        # Stream events using LangGraph's astream_events API
-        async for event in app.state.graph.astream_events(initial_state, version="v2", config=run_config):
-            event_type = event.get("event")
-            name = event.get("name")
-            data = event.get("data", {})
-            
-            # Filter for LangGraph node starts
-            if event_type == "on_node_start":
-                payload = {"node": name}
-                yield f"event: node_start\ndata: {json.dumps(payload)}\n\n"
-                await asyncio.sleep(0.1)
-                
-            # Filter for LangGraph node completions
-            elif event_type == "on_node_end":
-                output = data.get("output", {})
-                
-                # Normalize Pydantic models to dicts in output
-                serialized_output = {}
-                if isinstance(output, dict):
-                    for k, v in output.items():
-                        if hasattr(v, "model_dump"):
-                            serialized_output[k] = v.model_dump()
-                        elif isinstance(v, list):
-                            serialized_output[k] = [
-                                item.model_dump() if hasattr(item, "model_dump") else item 
-                                for item in v
-                            ]
-                        else:
-                            serialized_output[k] = v
-                else:
-                    serialized_output = output
-                
-                # Merge current node output updates into state_accumulator
-                if isinstance(output, dict):
-                    for k, v in output.items():
-                        if k in ["stage_events", "score_history", "audit_trail"]:
-                            val_list = v if isinstance(v, list) else [v]
-                            serialized_list = [
-                                item.model_dump() if hasattr(item, "model_dump") else item 
-                                for item in val_list
-                            ]
-                            state_accumulator[k] = state_accumulator[k] + serialized_list
-                        else:
-                            if hasattr(v, "model_dump"):
-                                state_accumulator[k] = v.model_dump()
-                            else:
-                                state_accumulator[k] = v
-                
-                payload = {"node": name, "output": serialized_output}
+        # astream(stream_mode="updates") yields {node_name: node_output_dict} per step.
+        # This is more reliable than astream_events because it does not depend on
+        # LangGraph internal event-type strings (on_chain_start vs on_node_start etc.)
+        async for chunk in app.state.graph.astream(
+            initial_state,
+            config=run_config,
+            stream_mode="updates",
+        ):
+            for node_name, node_output in chunk.items():
+                if not isinstance(node_output, dict):
+                    continue  # skip non-dict outputs (e.g. interrupt signals)
+
+                # ── node_start ───────────────────────────────────────────────
+                yield f"event: node_start\ndata: {json.dumps({'node': node_name})}\n\n"
+                await asyncio.sleep(0.05)
+
+                # Serialize output (Pydantic models → plain dicts)
+                serialized_output = {k: _serialize(v) for k, v in node_output.items()}
+
+                # Accumulate into final_state
+                for k, v in node_output.items():
+                    if k in ADDITIVE_KEYS:
+                        items = v if isinstance(v, list) else [v]
+                        ser   = [x.model_dump() if hasattr(x, "model_dump") else x for x in items]
+                        final_state[k] = final_state.get(k, []) + ser
+                    else:
+                        final_state[k] = _serialize(v)
+
+                # ── node_end ─────────────────────────────────────────────────
+                payload = {"node": node_name, "output": serialized_output}
                 yield f"event: node_end\ndata: {json.dumps(payload)}\n\n"
-                await asyncio.sleep(0.1)
-                
-        # Emit final completed event containing state accumulator data
-        yield f"event: done\ndata: {json.dumps(state_accumulator)}\n\n"
-        
+                await asyncio.sleep(0.05)
+
+        # ── done ─────────────────────────────────────────────────────────────
+        # final_state now contains the fully-accumulated pipeline output
+        yield f"event: done\ndata: {json.dumps(final_state)}\n\n"
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -299,7 +295,7 @@ async def generate(request: GenerateRequest):
         print(f"main.py WARNING: Failed to write initial project to database: {e}")
         
     return StreamingResponse(
-        event_generator(resolved_prompt, resolved_language, resolved_project_id),
+        event_generator(resolved_prompt, resolved_language, resolved_project_id, code=request.code or ""),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no"}
     )
@@ -307,16 +303,16 @@ async def generate(request: GenerateRequest):
 @app.get("/api/projects")
 async def list_projects():
     """
-    Retrieves all projects stored in long-term memory, ordered by most recent.
+    Retrieves all projects stored in long-term memory.
     """
     return get_all_projects()
 
 @app.get("/api/projects/{project_id}")
 async def retrieve_project(project_id: str):
     """
-    Retrieves a single project with all its generations merged in.
+    Retrieves a single project by ID.
     """
-    project = get_project_with_generations(project_id)
+    project = get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
@@ -329,293 +325,10 @@ async def project_history(project_id: str):
     generations = get_project_generations(project_id)
     return generations
 
-
-# ── Write-to-Disk ─────────────────────────────────────────────────────────────
-
-class WriteRequest(BaseModel):
-    code: str                          # final code to write (may be user-edited)
-    output_dir: Optional[str] = None   # override base dir; defaults to ~/CodeSentinel-projects
-
-
-def _detect_extension(language: str) -> str:
-    return {
-        "javascript": "js", "typescript": "ts", "python": "py",
-        "java": "java", "go": "go", "rust": "rs", "cpp": "cpp",
-        "c": "c", "ruby": "rb", "php": "php", "swift": "swift",
-    }.get(language.lower(), "txt")
-
-
-def _build_package_json(project_id: str, language: str, code: str) -> Optional[str]:
-    """Generates a minimal package.json for JS/TS projects."""
-    if language.lower() not in ("javascript", "typescript"):
-        return None
-    # Detect common dependencies used in code
-    deps: dict = {}
-    if "express" in code:      deps["express"] = "^4.19.0"
-    if "axios" in code:        deps["axios"] = "^1.7.0"
-    if "dotenv" in code:       deps["dotenv"] = "^16.4.0"
-    if "mongoose" in code:     deps["mongoose"] = "^8.0.0"
-    if "pg" in code:           deps["pg"] = "^8.12.0"
-    if "bcrypt" in code:       deps["bcrypt"] = "^5.1.0"
-    if "jsonwebtoken" in code: deps["jsonwebtoken"] = "^9.0.0"
-    if "helmet" in code:       deps["helmet"] = "^7.1.0"
-
-    pkg = {
-        "name": project_id.replace("_", "-"),
-        "version": "1.0.0",
-        "description": "Generated by CodeSentinel",
-        "main": f"index.{_detect_extension(language)}",
-        "scripts": {
-            "start": f"node index.{_detect_extension(language)}",
-            "dev": f"node --watch index.{_detect_extension(language)}"
-        },
-        "dependencies": deps,
-        "engines": {"node": ">=18"}
-    }
-    return json.dumps(pkg, indent=2)
-
-
-def _build_readme(project: dict, generation: dict) -> str:
-    score = generation.get("security_score", 0)
-    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 50 else "🔴"
-    findings = generation.get("findings", [])
-
-    findings_md = ""
-    if findings:
-        findings_md = "\n\n## Security Findings\n\n"
-        for f in findings:
-            findings_md += f"### {f.get('severity','?')} — {f.get('check_id','unknown')}\n"
-            findings_md += f"- **Line**: {f.get('line', '?')}\n"
-            findings_md += f"- **Message**: {f.get('message', '')}\n"
-            cwes = ", ".join(f.get("cwe", []))
-            if cwes: findings_md += f"- **CWE**: {cwes}\n"
-            findings_md += "\n"
-    else:
-        findings_md = "\n\n## Security Findings\n\n✅ No security findings — code is clean.\n"
-
-    return f"""# {project.get('name', project['id'])}
-
-> Generated by **CodeSentinel** — AI-powered secure code generation pipeline
-
-## Requirement
-
-{project.get('prompt', '')}
-
-## Security Score
-
-{score_emoji} **{score}/100**
-
-Generated: {generation.get('created_at', '')}
-Language: `{project.get('language', 'unknown')}`
-{findings_md}
-## Pipeline
-
-This project was generated and secured by the CodeSentinel multi-agent pipeline:
-
-1. **Developer Agent** — generates code from requirement
-2. **E2B Execute** — validates code in sandboxed microVM
-3. **Semgrep Scan** — static security analysis
-4. **Triage Agent** — filters false positives, assigns score
-5. **Synthesizer Agent** — patches real vulnerabilities
-6. **Finalize** — saves to long-term memory
-
----
-*CodeSentinel · [github.com/your-org/codesentinel](https://github.com)*
-"""
-
-
-def _build_audit_report(project: dict, generation: dict) -> str:
-    return json.dumps({
-        "project_id": project["id"],
-        "project_name": project.get("name"),
-        "prompt": project.get("prompt"),
-        "language": project.get("language"),
-        "security_score": generation.get("security_score"),
-        "findings": generation.get("findings", []),
-        "generated_at": generation.get("created_at"),
-        "written_at": None,  # filled after write
-    }, indent=2)
-
-
-@app.post("/api/projects/{project_id}/write")
-async def write_project_to_disk(project_id: str, request: WriteRequest):
-    """
-    Writes the accepted code (and supporting files) to disk.
-    Creates a proper project folder structure under ~/CodeSentinel-projects/.
-    Stores the project_dir path back to the database.
-
-    POST body: { code: string, output_dir?: string }
-    Returns: { project_dir, written_files: [{path, size}] }
-    """
-    project = get_project_with_generations(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    latest_gen = project.get("latest_generation") or {}
-    language = project.get("language", "javascript")
-
-    # Resolve base output directory
-    base_dir = request.output_dir or os.path.expanduser("~/CodeSentinel-projects")
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project_id)
-    project_dir = os.path.join(base_dir, safe_name)
-    sentinel_dir = os.path.join(project_dir, ".codesentinel")
-
-    os.makedirs(project_dir,  exist_ok=True)
-    os.makedirs(sentinel_dir, exist_ok=True)
-
-    ext       = _detect_extension(language)
-    main_file = os.path.join(project_dir, f"index.{ext}")
-    written_files = []
-
-    # 1. Main code file
-    with open(main_file, "w", encoding="utf-8") as f:
-        f.write(request.code)
-    written_files.append({"path": main_file, "size": os.path.getsize(main_file), "type": "code"})
-
-    # 2. package.json (JS/TS only)
-    pkg = _build_package_json(project_id, language, request.code)
-    if pkg:
-        pkg_path = os.path.join(project_dir, "package.json")
-        with open(pkg_path, "w", encoding="utf-8") as f:
-            f.write(pkg)
-        written_files.append({"path": pkg_path, "size": os.path.getsize(pkg_path), "type": "config"})
-
-    # 3. README.md
-    readme_path = os.path.join(project_dir, "README.md")
-    with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(_build_readme(project, latest_gen))
-    written_files.append({"path": readme_path, "size": os.path.getsize(readme_path), "type": "docs"})
-
-    # 4. .codesentinel/audit_report.json
-    audit_path = os.path.join(sentinel_dir, "audit_report.json")
-    audit_data = json.loads(_build_audit_report(project, latest_gen))
-    import datetime
-    audit_data["written_at"] = datetime.datetime.now().isoformat()
-    with open(audit_path, "w", encoding="utf-8") as f:
-        json.dump(audit_data, f, indent=2)
-    written_files.append({"path": audit_path, "size": os.path.getsize(audit_path), "type": "audit"})
-
-    # 5. .codesentinel/pipeline_log.json — stage_events from latest generation
-    log_path = os.path.join(sentinel_dir, "pipeline_log.json")
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "project_id": project_id,
-            "score_history": [],
-            "stage_events": [],
-            "generated_at": latest_gen.get("created_at"),
-        }, f, indent=2)
-    written_files.append({"path": log_path, "size": os.path.getsize(log_path), "type": "log"})
-
-    # Persist project_dir to DB
-    update_project_dir(project_id, project_dir)
-
-    return {
-        "project_dir": project_dir,
-        "written_files": written_files,
-        "file_count": len(written_files),
-    }
-
-
-@app.get("/api/projects/{project_id}/files")
-async def list_project_files(project_id: str):
-    """
-    Lists files written to disk for a project.
-    Returns empty list if project hasn't been written yet.
-    """
-    project = get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    project_dir = project.get("project_dir")
-    if not project_dir or not os.path.isdir(project_dir):
-        return {"project_dir": None, "files": [], "written": False}
-
-    files = []
-    for root, dirs, filenames in os.walk(project_dir):
-        # skip .git
-        dirs[:] = [d for d in dirs if d != ".git"]
-        for fname in filenames:
-            fpath = os.path.join(root, fname)
-            rel   = os.path.relpath(fpath, project_dir)
-            files.append({
-                "name": fname,
-                "path": fpath,
-                "relative_path": rel,
-                "size": os.path.getsize(fpath),
-            })
-
-    return {
-        "project_dir": project_dir,
-        "written": True,
-        "written_at": project.get("written_at"),
-        "files": files,
-    }
-
-
-@app.get("/api/projects/{project_id}/files/{file_path:path}")
-async def read_project_file(project_id: str, file_path: str):
-    """
-    Returns the content of a specific file within the project directory.
-    file_path is relative to the project directory (e.g. index.js, .codesentinel/audit_report.json)
-    """
-    from fastapi.responses import PlainTextResponse
-    project = get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    project_dir = project.get("project_dir")
-    if not project_dir:
-        raise HTTPException(status_code=404, detail="Project not written to disk yet.")
-
-    # Security: resolve and verify path is inside project_dir
-    abs_path = os.path.realpath(os.path.join(project_dir, file_path))
-    if not abs_path.startswith(os.path.realpath(project_dir)):
-        raise HTTPException(status_code=403, detail="Access denied.")
-
-    if not os.path.isfile(abs_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-
-    with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read()
-
-    return PlainTextResponse(content, media_type="text/plain")
-
-
-@app.post("/api/projects/{project_id}/open")
-async def open_project_dir(project_id: str):
-    """
-    Opens the project directory in Finder (macOS), File Explorer (Windows), or File Manager (Linux).
-    """
-    project = get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    project_dir = project.get("project_dir")
-    if not project_dir or not os.path.isdir(project_dir):
-        raise HTTPException(status_code=400, detail="Project directory does not exist or has not been written.")
-
-    import subprocess
-    import sys
-    try:
-        if sys.platform == "darwin":
-            subprocess.run(["open", project_dir], check=True)
-        elif sys.platform == "win32":
-            os.startfile(project_dir)
-        else:
-            subprocess.run(["xdg-open", project_dir], check=True)
-        return {"success": True, "message": f"Opened {project_dir}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to open directory: {str(e)}")
-
-
-
-
-
 if __name__ == "__main__":
     import uvicorn
-
+    
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
-
+    
     uvicorn.run("main:app", host=host, port=port, reload=True)
-

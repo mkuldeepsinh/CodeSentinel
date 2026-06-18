@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useMemo } from "react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { tokyoNight } from "@uiw/codemirror-theme-tokyo-night";
 import { python } from "@codemirror/lang-python";
@@ -96,6 +96,20 @@ const editorTheme = EditorView.theme({
   },
 });
 
+const BASIC_SETUP = {
+  lineNumbers: true,
+  highlightActiveLine: true,
+  highlightActiveLineGutter: true,
+  foldGutter: true,
+  dropCursor: true,
+  allowMultipleSelections: true,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: true,
+  syntaxHighlighting: true,
+  searchKeymap: true,
+};
+
 // ── CodeEditor ────────────────────────────────────────────────────────────────
 export default function CodeEditor({ tab }: { tab: Tab }) {
   const { updateTabContent, setCursor } = useIDEStore();
@@ -115,32 +129,22 @@ export default function CodeEditor({ tab }: { tab: Tab }) {
     [setCursor]
   );
 
+  const extensions = useMemo(() => [
+    ...getLangExtension(tab.language),
+    editorTheme,
+    EditorView.lineWrapping,
+  ], [tab.language]);
+
   return (
     <div style={{ height: "100%", overflow: "hidden" }}>
       <CodeMirror
         value={tab.content}
         height="100%"
         theme={tokyoNight}
-        extensions={[
-          ...getLangExtension(tab.language),
-          editorTheme,
-          EditorView.lineWrapping,
-        ]}
+        extensions={extensions}
         onChange={handleChange}
         onUpdate={handleUpdate as never}
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLine: true,
-          highlightActiveLineGutter: true,
-          foldGutter: true,
-          dropCursor: true,
-          allowMultipleSelections: true,
-          bracketMatching: true,
-          closeBrackets: true,
-          autocompletion: true,
-          syntaxHighlighting: true,
-          searchKeymap: true,
-        }}
+        basicSetup={BASIC_SETUP}
         style={{
           height: "100%",
           fontFamily: "var(--font-jetbrains, 'JetBrains Mono', monospace)",

@@ -19,7 +19,8 @@ from database import (
     get_all_projects,
     get_project_generations,
     find_similar_generation,
-    create_project
+    create_project,
+    create_generation
 )
 from embeddings import get_embedding
 
@@ -324,6 +325,75 @@ async def project_history(project_id: str):
     """
     generations = get_project_generations(project_id)
     return generations
+
+class CreateProjectRequest(BaseModel):
+    id: str
+    name: str
+    language: str
+    prompt: Optional[str] = ""
+
+@app.post("/api/projects")
+async def api_create_project(request: CreateProjectRequest):
+    """
+    Creates a new project and initializes it with a README.md.
+    """
+    existing = get_project(request.id)
+    if existing:
+        raise HTTPException(status_code=400, detail="Project ID already exists.")
+        
+    try:
+        create_project(
+            project_id=request.id,
+            name=request.name,
+            prompt=request.prompt or "Manually created project folder",
+            language=request.language
+        )
+        
+        # Initialize with a default README.md file mapping
+        initial_code = json.dumps({
+            "files": {
+                "README.md": f"# {request.name}\n\nThis project folder was manually created.\nDefault language: {request.language}\n"
+            }
+        })
+        
+        create_generation(
+            project_id=request.id,
+            code=initial_code,
+            security_score=100,
+            findings=[],
+            embedding=[]
+        )
+        
+        return {"status": "success", "project_id": request.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class SaveCodeRequest(BaseModel):
+    code: str
+    security_score: Optional[int] = 100
+    findings: Optional[List[Any]] = []
+
+@app.post("/api/projects/{project_id}/code")
+async def save_project_code(project_id: str, request: SaveCodeRequest):
+    """
+    Saves manually edited code or file structures to the database as a new generation.
+    """
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+        
+    try:
+        create_generation(
+            project_id=project_id,
+            code=request.code,
+            security_score=request.security_score,
+            findings=request.findings,
+            embedding=[]
+        )
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

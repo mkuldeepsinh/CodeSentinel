@@ -226,10 +226,17 @@ export default function Sidebar() {
     fileTree,
     projects, activeProjectId,
     loadProjects,
+    createProject, createFile,
     setPanelOpen, setActivePanelTab,
   } = useIDEStore();
 
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectLanguage, setNewProjectLanguage] = useState("python");
+
+  const [isCreatingFile, setIsCreatingFile] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
 
   // Load projects from backend on mount
   useEffect(() => {
@@ -240,12 +247,48 @@ export default function Sidebar() {
   if (!sidebarOpen) return null;
 
   const handleNewProject = () => {
-    setPanelOpen(true);
-    setActivePanelTab("codesentinel");
-    // Focus the prompt input
+    setIsCreatingProject(true);
     setTimeout(() => {
-      document.getElementById("cli-input")?.focus();
+      document.getElementById("new-project-input")?.focus();
     }, 50);
+  };
+
+  const handleProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newProjectName.trim();
+    if (!name) return;
+
+    // Check uniqueness
+    const exists = projects.some(p => p.id.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      alert("A project with this name already exists!");
+      return;
+    }
+
+    setIsCreatingProject(false);
+    setNewProjectName("");
+    await createProject(name, newProjectLanguage);
+  };
+
+  const handleFileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newFileName.trim();
+    if (!name || !activeProjectId) return;
+
+    setIsCreatingFile(false);
+    setNewFileName("");
+
+    let initialContent = "";
+    const ext = name.split(".").pop()?.toLowerCase();
+    if (ext === "py") {
+      initialContent = "# Python file\n";
+    } else if (ext === "js" || ext === "ts" || ext === "tsx" || ext === "jsx") {
+      initialContent = "// JavaScript/TypeScript file\n";
+    } else if (ext === "md") {
+      initialContent = `# ${name}\n`;
+    }
+
+    await createFile(activeProjectId, name, initialContent);
   };
 
   const handleRefresh = () => {
@@ -312,6 +355,74 @@ export default function Sidebar() {
 
           {/* Project list */}
           <div style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6, marginBottom: 4 }}>
+            {isCreatingProject && (
+              <form onSubmit={handleProjectSubmit} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "5px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Folder size={13} style={{ color: "#e0af68", flexShrink: 0 }} />
+                  <input
+                    id="new-project-input"
+                    placeholder="project-name"
+                    value={newProjectName}
+                    onChange={e => setNewProjectName(e.target.value)}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        if (!newProjectName.trim()) setIsCreatingProject(false);
+                      }, 200);
+                    }}
+                    style={{
+                      background: "var(--bg-overlay)",
+                      border: "1px solid var(--accent-blue)",
+                      borderRadius: 4,
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                      padding: "2px 6px",
+                      outline: "none",
+                      width: "100%",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 19 }}>
+                  <select
+                    value={newProjectLanguage}
+                    onChange={e => setNewProjectLanguage(e.target.value)}
+                    style={{
+                      background: "var(--bg-overlay)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 4,
+                      color: "var(--text-secondary)",
+                      fontSize: 10,
+                      padding: "1px 4px",
+                      outline: "none",
+                      cursor: "pointer",
+                      width: "100%",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                  </select>
+                  <button
+                    type="submit"
+                    style={{
+                      background: "rgba(122, 162, 247, 0.15)",
+                      border: "1px solid rgba(122, 162, 247, 0.3)",
+                      borderRadius: 4,
+                      color: "var(--accent-blue)",
+                      fontSize: 10,
+                      padding: "1px 6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Create
+                  </button>
+                </div>
+              </form>
+            )}
+
             {isLoadingProjects && projects.length === 0 ? (
               <div style={{ padding: "6px 16px", fontSize: 11, color: "var(--text-disabled)" }}>
                 <RefreshCw size={10} style={{ display: "inline", marginRight: 4, animation: "spin 1s linear infinite" }} />
@@ -321,7 +432,7 @@ export default function Sidebar() {
               <div style={{ padding: "6px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
                 No projects yet.
                 <br />
-                Type a requirement below.
+                Click + to create folder.
               </div>
             ) : (
               projects.map(p => (
@@ -349,11 +460,57 @@ export default function Sidebar() {
             flexShrink: 0,
           }}>
             <ChevronDown size={12} />
-            <span>Files</span>
+            <span style={{ flex: 1 }}>Files</span>
+            {activeProjectId && (
+              <button
+                title="New file"
+                onClick={() => {
+                  setIsCreatingFile(true);
+                  setTimeout(() => {
+                    document.getElementById("new-file-input")?.focus();
+                  }, 50);
+                }}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                  display: "flex", alignItems: "center",
+                }}
+              >
+                <Plus size={12} />
+              </button>
+            )}
           </div>
 
           <div className="file-tree">
-            {fileTree.length === 0 ? (
+            {isCreatingFile && (
+              <form onSubmit={handleFileSubmit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px 4px 22px" }}>
+                <FileIcon name={newFileName || "temp.txt"} />
+                <input
+                  id="new-file-input"
+                  placeholder="filename.py"
+                  value={newFileName}
+                  onChange={e => setNewFileName(e.target.value)}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (!newFileName.trim()) setIsCreatingFile(false);
+                    }, 200);
+                  }}
+                  style={{
+                    background: "var(--bg-overlay)",
+                    border: "1px solid var(--accent-blue)",
+                    borderRadius: 4,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    padding: "1px 6px",
+                    outline: "none",
+                    width: "100%",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                />
+              </form>
+            )}
+
+            {fileTree.length === 0 && !isCreatingFile ? (
               <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
                 Files appear here after the pipeline completes.
               </div>

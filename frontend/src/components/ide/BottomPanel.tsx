@@ -321,6 +321,7 @@ export default function BottomPanel() {
     updateLiveCode, createProjectFiles,
     appendAuditSnapshot, setAuditTrail,
     scanRequest, setScanRequest,
+    activeProjectId, tabs, activeTabId,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -528,8 +529,18 @@ export default function BottomPanel() {
     addEvent({ type: "user",   message: prompt });
     addEvent({ type: "system", message: "Connecting to CodeSentinel pipeline…" });
 
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    const codeContent = activeTab && activeTab.fileId.startsWith(`${activeProjectId}/`) && !activeTab.isLive
+      ? activeTab.content
+      : undefined;
+
     try {
-      for await (const { eventType, data } of streamGenerate(prompt, capturedLanguage)) {
+      for await (const { eventType, data } of streamGenerate(
+        prompt,
+        capturedLanguage,
+        activeProjectId || undefined,
+        codeContent,
+      )) {
         processSSEEvent(eventType, data, capturedLanguage);
       }
     } catch (err: unknown) {

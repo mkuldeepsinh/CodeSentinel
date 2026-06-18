@@ -9,6 +9,7 @@ import {
   fetchGenerations,
 } from "@/lib/api";
 import { getFileName, LANG_EXT, getLanguageLabel } from "@/lib/languages";
+import { API_BASE } from "@/lib/config";
 
 // ── Re-export backend types so components have a single import source ─────────
 export type { Project, SemgrepFinding };
@@ -140,6 +141,9 @@ interface IDEStore {
 
   // ── Project Actions ─────────────────────────────────────────────────────────
   loadProjects:        () => Promise<void>;
+  createProject:       (projectId: string, language: string) => Promise<void>;
+  createFile:          (projectId: string, filePath: string, content: string) => Promise<void>;
+  saveFileContent:     (projectId: string, filePath: string, content: string) => Promise<void>;
   createProjectFiles:  (params: CreateProjectParams) => void;
   updateLiveCode:      (code: string, language: string) => void;
   switchProject:       (projectId: string) => Promise<void>;
@@ -232,60 +236,97 @@ ${finalCode}
 `;
 }
 
-function buildProjectTree(params: CreateProjectParams): FileNode {
-  const { projectId, language, finalCode, auditTrail, scoreHistory } = params;
-  const codeName     = getFileName(language);
-  const reportContent = generateSecurityReport(params);
-  const langKey      = language.toLowerCase();
-  const cmLang       = LANG_EXT[langKey] ? langKey : "plaintext";
-
-  return {
+function buildProjectTreeFromMap(projectId: string, files: Record<string, string>): FileNode {
+  const rootNode: FileNode = {
     id:     projectId,
     name:   projectId,
     type:   "folder",
     isOpen: true,
-    children: [
-      {
-        id:       `${projectId}/${codeName}`,
-        name:     codeName,
-        type:     "file",
-        language: cmLang,
-        content:  finalCode,
-      },
-      {
-        id:       `${projectId}/security_report.md`,
-        name:     "security_report.md",
-        type:     "file",
-        language: "markdown",
-        content:  reportContent,
-      },
-      {
-        id:       `${projectId}/.sentinel`,
-        name:     ".sentinel",
-        type:     "folder",
-        isOpen:   false,
-        children: [
-          {
-            id:       `${projectId}/.sentinel/audit_trail.json`,
-            name:     "audit_trail.json",
-            type:     "file",
-            language: "json",
-            content:  JSON.stringify(auditTrail, null, 2),
-          },
-          {
-            id:       `${projectId}/.sentinel/score_history.json`,
-            name:     "score_history.json",
-            type:     "file",
-            language: "json",
-            content:  JSON.stringify(scoreHistory, null, 2),
-          },
-        ],
-      },
-    ],
+    children: [],
   };
+
+  const addFileToTree = (filePath: string, content: string) => {
+    const segments = filePath.split("/").filter(Boolean);
+    let currentDir = rootNode;
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const isLast = i === segments.length - 1;
+      const currentPath = segments.slice(0, i + 1).join("/");
+      const nodeId = `${projectId}/${currentPath}`;
+
+      if (isLast) {
+        const ext = segment.split(".").pop() || "";
+        const cmLang = LANG_EXT[ext] ? ext : "plaintext";
+        
+        currentDir.children = currentDir.children || [];
+        if (!currentDir.children.find(c => c.id === nodeId)) {
+          currentDir.children.push({
+            id: nodeId,
+            name: segment,
+            type: "file",
+            language: cmLang,
+            content: content,
+          });
+        }
+      } else {
+        currentDir.children = currentDir.children || [];
+        let folderNode = currentDir.children.find(c => c.id === nodeId && c.type === "folder");
+        if (!folderNode) {
+          folderNode = {
+            id: nodeId,
+            name: segment,
+            type: "folder",
+            isOpen: true,
+            children: [],
+          };
+          currentDir.children.push(folderNode);
+        }
+        currentDir = folderNode;
+      }
+    }
+  };
+
+  for (const [filePath, content] of Object.entries(files)) {
+    addFileToTree(filePath, content);
+  }
+
+  return rootNode;
 }
 
+function buildProjectTree(params: CreateProjectParams): FileNode {
+  const { projectId, language, finalCode, auditTrail, scoreHistory } = params;
+  const codeName     = getFileName(language);
+  const reportContent = generateSecurityReport(params);
+
+  let files: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(finalCode);
+    if (parsed && typeof parsed === "object" && parsed.files) {
+      files = parsed.files;
+    } else {
+      files = { [codeName]: finalCode };
+    }
+  } catch {
+    files = { [codeName]: finalCode };
+  }
+
+  if (!files["security_report.md"]) {
+    files["security_report.md"] = reportContent;
+  }
+  if (!files[".sentinel/audit_trail.json"]) {
+    files[".sentinel/audit_trail.json"] = JSON.stringify(auditTrail, null, 2);
+  }
+  if (!files[".sentinel/score_history.json"]) {
+    files[".sentinel/score_history.json"] = JSON.stringify(scoreHistory, null, 2);
+  }
+
+  return buildProjectTreeFromMap(projectId, files);
+}
+
+
 const LIVE_TAB_ID = "tab-live-preview";
+let saveTimeout: NodeJS.Timeout | null = null;
 
 // ── Store Implementation ──────────────────────────────────────────────────────
 export const useIDEStore = create<IDEStore>((set, get) => ({
@@ -399,10 +440,27 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     }
   },
 
-  updateTabContent: (tabId, content) =>
+  updateTabContent: (tabId, content) => {
     set(s => ({
       tabs: s.tabs.map(t => t.id === tabId ? { ...t, content, isDirty: true } : t),
-    })),
+    }));
+
+    const tab = get().tabs.find(t => t.id === tabId);
+    if (tab && !tab.isLive) {
+      const activeProjectId = get().activeProjectId;
+      if (activeProjectId) {
+        const relativePath = tab.fileId.replace(`${activeProjectId}/`, "");
+        
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
+          await get().saveFileContent(activeProjectId, relativePath, content);
+          set(s => ({
+            tabs: s.tabs.map(t => t.id === tabId ? { ...t, isDirty: false } : t),
+          }));
+        }, 1000);
+      }
+    }
+  },
 
   setPanelOpen:      (open) => set({ panelOpen: open }),
   setActivePanelTab: (tab)  => set({ activePanelTab: tab }),
@@ -455,31 +513,215 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     }
   },
 
+  createProject: async (projectId, language) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: projectId,
+          name: projectId,
+          language,
+        }),
+      });
+      if (resp.ok) {
+        await get().loadProjects();
+        await get().switchProject(projectId);
+      } else {
+        const text = await resp.text();
+        alert(`Failed to create project: ${text}`);
+      }
+    } catch (err) {
+      console.error("Error creating project:", err);
+    }
+  },
+
+  createFile: async (projectId, filePath, content) => {
+    const { fileTree } = get();
+    const projectNode = fileTree.find(n => n.id === projectId);
+    const filesMap: Record<string, string> = {};
+
+    const extractFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${projectId}/`, "");
+        if (
+          relativePath !== "security_report.md" &&
+          !relativePath.startsWith(".sentinel/")
+        ) {
+          filesMap[relativePath] = node.content ?? "";
+        }
+      } else if (node.children) {
+        node.children.forEach(extractFiles);
+      }
+    };
+
+    if (projectNode) {
+      extractFiles(projectNode);
+    }
+
+    filesMap[filePath] = content;
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: JSON.stringify({ files: filesMap }),
+        }),
+      });
+
+      if (resp.ok) {
+        await get().switchProject(projectId);
+        
+        const ext = filePath.split(".").pop() || "";
+        const cmLang = LANG_EXT[ext] ? ext : "plaintext";
+        get().openFile({
+          id: `${projectId}/${filePath}`,
+          name: filePath.split("/").pop() || filePath,
+          type: "file",
+          language: cmLang,
+          content: content,
+        });
+      }
+    } catch (err) {
+      console.error("Error creating file:", err);
+    }
+  },
+
+  saveFileContent: async (projectId, filePath, content) => {
+    const { fileTree } = get();
+    const projectNode = fileTree.find(n => n.id === projectId);
+    const filesMap: Record<string, string> = {};
+
+    const extractFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${projectId}/`, "");
+        if (
+          relativePath !== "security_report.md" &&
+          !relativePath.startsWith(".sentinel/")
+        ) {
+          if (node.id === `${projectId}/${filePath}`) {
+            filesMap[relativePath] = content;
+          } else {
+            filesMap[relativePath] = node.content ?? "";
+          }
+        }
+      } else if (node.children) {
+        node.children.forEach(extractFiles);
+      }
+    };
+
+    if (projectNode) {
+      extractFiles(projectNode);
+    }
+
+    filesMap[filePath] = content;
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: JSON.stringify({ files: filesMap }),
+        }),
+      });
+
+      if (resp.ok) {
+        set(s => {
+          const updateTreeNode = (nodes: FileNode[]): FileNode[] => {
+            return nodes.map(node => {
+              if (node.id === `${projectId}/${filePath}`) {
+                return { ...node, content };
+              }
+              if (node.children) {
+                return { ...node, children: updateTreeNode(node.children) };
+              }
+              return node;
+            });
+          };
+          return { fileTree: updateTreeNode(s.fileTree) };
+        });
+      }
+    } catch (err) {
+      console.error("Error saving file content:", err);
+    }
+  },
+
+
   createProjectFiles: (params) => {
     const { projectId, language, finalCode, auditTrail, scoreHistory } = params;
-    const codeName     = getFileName(language);
-    const codeTabId    = `tab-${projectId}-code`;
-    const reportTabId  = `tab-${projectId}-report`;
-    const reportContent = generateSecurityReport(params);
     const langKey      = language.toLowerCase();
-    const projectNode  = buildProjectTree(params);
+    
+    // Check if finalCode is already JSON
+    let isJson = false;
+    try {
+      const parsed = JSON.parse(finalCode);
+      if (parsed && typeof parsed === "object" && parsed.files) {
+        isJson = true;
+      }
+    } catch {}
+
+    let processedCode = finalCode;
+    let targetFileRelativePath = getFileName(language);
+
+    if (!isJson) {
+      const { tabs, activeTabId } = get();
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      
+      if (activeTab && activeTab.fileId.startsWith(`${projectId}/`) && !activeTab.isLive) {
+        targetFileRelativePath = activeTab.fileId.replace(`${projectId}/`, "");
+      }
+
+      // Load existing files map from the store tree
+      const projectNode = get().fileTree.find(n => n.id === projectId);
+      const filesMap: Record<string, string> = {};
+      const extractFiles = (node: FileNode) => {
+        if (node.type === "file") {
+          const relativePath = node.id.replace(`${projectId}/`, "");
+          if (
+            relativePath !== "security_report.md" &&
+            !relativePath.startsWith(".sentinel/")
+          ) {
+            filesMap[relativePath] = node.content ?? "";
+          }
+        } else if (node.children) {
+          node.children.forEach(extractFiles);
+        }
+      };
+
+      if (projectNode) {
+        extractFiles(projectNode);
+      }
+
+      // Update the targeted file with the generated code
+      filesMap[targetFileRelativePath] = finalCode;
+
+      if (Object.keys(filesMap).length > 0) {
+        processedCode = JSON.stringify({ files: filesMap });
+      }
+    }
+
+    const updatedParams = { ...params, finalCode: processedCode };
+    const projectNode = buildProjectTree(updatedParams);
+    const codeName = targetFileRelativePath;
+    const codeTabId = `tab-${projectId}-${codeName.replace(/\//g, "-")}`;
+    const reportTabId = `tab-${projectId}-report`;
+    const reportContent = generateSecurityReport(updatedParams);
 
     set(s => {
-      // Replace existing project folder or append new one
       const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
       const newTree = existingIdx >= 0
         ? s.fileTree.map((n, i) => i === existingIdx ? projectNode : n)
         : [...s.fileTree, projectNode];
 
-      // Remove live-preview tab, deduplicate project tabs
       const baseTabs = s.tabs.filter(t => !t.isLive && t.id !== codeTabId && t.id !== reportTabId);
 
       const codeTab: Tab = {
         id:       codeTabId,
         fileId:   `${projectId}/${codeName}`,
-        fileName: codeName,
+        fileName: codeName.split("/").pop() || codeName,
         language: langKey,
-        content:  finalCode,
+        content:  isJson ? (JSON.parse(finalCode).files[codeName] || "") : finalCode,
         isDirty:  false,
       };
       const reportTab: Tab = {
@@ -491,9 +733,19 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         isDirty:  false,
       };
 
-      // Auto-expand the new project folder
       const newExpanded = new Set(s.expandedFolders);
       newExpanded.add(projectId);
+
+      // Save the authoritative state of project files back to database
+      fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: processedCode,
+          security_score: params.securityScore,
+          findings: params.findings,
+        }),
+      }).catch(err => console.error("Error saving authoritative code after pipeline complete:", err));
 
       return {
         fileTree:        newTree,
@@ -503,10 +755,10 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         selectedFileId:  `${projectId}/${codeName}`,
         expandedFolders: newExpanded,
         language:        langLabel(langKey),
-        liveCode:        finalCode,
+        liveCode:        isJson ? (JSON.parse(finalCode).files[codeName] || "") : finalCode,
         liveLanguage:    langKey,
-        auditTrail,
-        scoreHistory,
+        auditTrail:      params.auditTrail,
+        scoreHistory:    params.scoreHistory,
       };
     });
   },

@@ -1,5 +1,7 @@
 import os
 import json
+import re
+from typing import Optional, List
 from e2b import Sandbox
 from dotenv import load_dotenv
 
@@ -16,6 +18,86 @@ LANGUAGE_CONFIG = {
     "python":     {"suffix": ".py",  "cmd": "python3"},
     "py":         {"suffix": ".py",  "cmd": "python3"},
 }
+
+def get_base_package_name(import_path: str) -> Optional[str]:
+    """
+    Given an import path (e.g. 'express', 'lodash/chunk', '@nestjs/core/subpath'),
+    returns the base package name (e.g. 'express', 'lodash', '@nestjs/core') if it is an npm package,
+    or None if it is a built-in module, a relative path, or invalid.
+    """
+    import_path = import_path.strip()
+    if not import_path:
+        return None
+        
+    # Ignore relative / absolute import paths
+    if import_path.startswith('.') or import_path.startswith('/'):
+        return None
+        
+    # Ignore node: prefix (standard Node built-in scheme)
+    if import_path.startswith('node:'):
+        return None
+        
+    # Node.js standard built-in modules list
+    built_ins = {
+        "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
+        "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
+        "events", "fs", "http", "http2", "https", "inspector", "module", "net",
+        "os", "path", "perf_hooks", "process", "punycode", "querystring", "readline",
+        "repl", "stream", "string_decoder", "sys", "timers", "tls", "trace_events",
+        "tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib"
+    }
+    
+    parts = import_path.split('/')
+    if import_path.startswith('@'):
+        # Scoped package: e.g. @nestjs/core/subpath -> @nestjs/core
+        if len(parts) >= 2:
+            base_pkg = f"{parts[0]}/{parts[1]}"
+        else:
+            base_pkg = import_path
+    else:
+        # Regular package: e.g. lodash/chunk -> lodash
+        base_pkg = parts[0]
+        
+    if base_pkg in built_ins:
+        return None
+        
+    return base_pkg
+
+
+def extract_npm_packages(code: str) -> List[str]:
+    """
+    Parses JavaScript/TypeScript code to extract all imported npm package names.
+    Ignores relative paths and Node.js built-in modules.
+    """
+    packages = set()
+    
+    # Pattern for ESM imports:
+    esm_pattern = re.compile(
+        r'(?:^|\s)import\s+(?:[^;\'"]+\s+from\s+)?[\'"]([^\'"]+)[\'"]',
+        re.MULTILINE
+    )
+    
+    # Pattern for CommonJS require:
+    cjs_pattern = re.compile(
+        r'(?:^|\s)require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
+        re.MULTILINE
+    )
+    
+    # Pattern for dynamic imports:
+    dyn_pattern = re.compile(
+        r'(?:^|\s)import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
+        re.MULTILINE
+    )
+    
+    for pattern in (esm_pattern, cjs_pattern, dyn_pattern):
+        for match in pattern.finditer(code):
+            pkg_path = match.group(1)
+            base_pkg = get_base_package_name(pkg_path)
+            if base_pkg:
+                packages.add(base_pkg)
+                
+    return sorted(list(packages))
+
 
 def _wrap_server_code(code: str, language: str) -> str:
     """
@@ -116,6 +198,54 @@ def execute_in_sandbox(code: str, language: str = "javascript", timeout: int = D
                 wrapped_code = _wrap_server_code(code, lang)
                 sandbox.files.write(sandbox_path, wrapped_code)
                 run_path = sandbox_path
+
+            # Dynamic npm package check & install
+            if lang in ("javascript", "js", "typescript", "ts"):
+                packages_to_check = set()
+                if files_map:
+                    for file_content in files_map.values():
+                        packages_to_check.update(extract_npm_packages(file_content))
+                else:
+                    packages_to_check.update(extract_npm_packages(code))
+
+                if packages_to_check:
+                    check_script = f"""
+const pkgs = {json.dumps(list(packages_to_check))};
+const missing = [];
+for (const p of pkgs) {{
+  try {{
+    require.resolve(p);
+  }} catch (e) {{
+    missing.push(p);
+  }}
+}}
+console.log(JSON.stringify(missing));
+"""
+                    sandbox.files.write("/tmp/check_deps.js", check_script)
+                    
+                    # Determine base workspace directory to resolve/install package
+                    work_dir = "/home/user/code" if files_map else "/home/user"
+                    sandbox.commands.run(f"mkdir -p {work_dir}")
+                    
+                    check_res = sandbox.commands.run(f"cd {work_dir} && node /tmp/check_deps.js")
+                    if check_res.exit_code == 0:
+                        try:
+                            missing_pkgs = json.loads(check_res.stdout.strip())
+                            if missing_pkgs:
+                                # Run npm install for missing packages
+                                install_res = sandbox.commands.run(
+                                    f"cd {work_dir} && npm install --no-audit --no-fund {' '.join(missing_pkgs)}",
+                                    timeout=120
+                                )
+                                if install_res.exit_code != 0:
+                                    print(f"E2B Warning: npm install failed: {install_res.stderr}")
+                        except Exception as parse_err:
+                            print(f"E2B Warning: Failed to parse check_deps response: {parse_err}")
+                    else:
+                        print(f"E2B Warning: check_deps.js execution failed: {check_res.stderr}")
+                    
+                    # Cleanup checker script
+                    sandbox.commands.run("rm -f /tmp/check_deps.js")
 
             execution = sandbox.commands.run(
                 f"{exec_cmd} {run_path}",

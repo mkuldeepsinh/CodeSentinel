@@ -456,30 +456,37 @@ main {
 .panel-tabs {
   display: flex;
   align-items: center;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-base);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  height: 32px;
-  padding: 0 8px;
-  gap: 2px;
+  height: 30px;
+  padding: 0;
+  gap: 0;
+  font-family: var(--font-mono);
 }
 .panel-tab {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 0 14px;
   height: 100%;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s ease;
+  border: none;
+  border-right: 1px solid var(--border-subtle);
+  background: transparent;
+  transition: all 0.15s ease;
   white-space: nowrap;
 }
-.panel-tab:hover { color: var(--text-secondary); }
+.panel-tab:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+}
 .panel-tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent-blue);
+  color: var(--accent-green);
+  background-color: rgba(255, 255, 255, 0.04);
+  font-weight: 600;
 }
 
 .panel-content {
@@ -493,65 +500,93 @@ main {
 .cli-log {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 14px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   font-family: var(--font-mono);
   font-size: 12.5px;
-  line-height: 1.6;
+  line-height: 1.5;
+  background-color: var(--bg-base);
 }
 
-.cli-msg {
+/* CLI shell lines */
+.cli-line {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
-  animation: fadeSlideUp 0.2s ease;
-}
-
-@keyframes fadeSlideUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.cli-msg.user {
-  background-color: rgba(122, 162, 247, 0.08);
-  border-color: rgba(122, 162, 247, 0.18);
-  align-self: flex-end;
-  max-width: 80%;
-}
-.cli-msg.agent {
-  background-color: rgba(19, 20, 29, 0.9);
-  border-color: var(--border-subtle);
-  align-self: flex-start;
-  max-width: 95%;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  animation: fadeSlideUp 0.08s ease;
+  word-break: break-all;
   width: 100%;
 }
-.cli-msg.system {
-  background-color: rgba(26, 27, 38, 0.6);
-  border-color: var(--border-subtle);
+
+.cli-timestamp {
   color: var(--text-muted);
   font-size: 11px;
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.cli-system-icon {
+  color: var(--accent-blue);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.cli-system-text {
+  color: var(--text-muted);
+}
+
+.cli-prompt-indicator {
+  color: var(--accent-green);
+  font-weight: 600;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.cli-user-text {
+  color: var(--text-bright);
+}
+
+.cli-agent-indicator {
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.cli-agent-text {
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.cli-line.error .cli-agent-text {
+  color: var(--accent-red);
+}
+
+.cli-node-tag {
+  user-select: none;
+  flex-shrink: 0;
+  font-weight: 600;
 }
 
 .cli-prompt-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 16px;
+  background-color: var(--bg-base);
   border-top: 1px solid var(--border-subtle);
-  background-color: rgba(13, 14, 20, 0.95);
-  backdrop-filter: blur(8px);
   flex-shrink: 0;
 }
 .cli-prompt-prefix {
   color: var(--accent-green);
   font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   flex-shrink: 0;
   user-select: none;
 }
@@ -560,12 +595,12 @@ main {
   background: transparent;
   border: none;
   outline: none;
-  color: var(--text-primary);
+  color: var(--text-bright);
   font-family: var(--font-mono);
   font-size: 13px;
-  caret-color: var(--accent-blue);
+  caret-color: var(--accent-green);
 }
-.cli-input::placeholder { color: var(--text-disabled); }
+.cli-input::placeholder { color: var(--text-muted); }
 
 /* ═══════════════════════════════════════════════════════════════
    STATUS BAR ITEMS

@@ -121,7 +121,7 @@ function EventMessage({ event }: { event: PipelineEvent }) {
     const parts: React.ReactNode[] = [];
     let lastIdx = 0, m;
     while ((m = codeRegex.exec(msg)) !== null) {
-      if (m.index > lastIdx) parts.push(<span key={lastIdx}>{msg.slice(lastIdx, m.index)}</span>);
+      if (m.index > lastIdx) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{msg.slice(lastIdx, m.index)}</span>);
       parts.push(
         <pre key={m.index} className="cli-code-block">
           <code>{m[2].trim()}</code>
@@ -129,23 +129,26 @@ function EventMessage({ event }: { event: PipelineEvent }) {
       );
       lastIdx = m.index + m[0].length;
     }
-    if (lastIdx < msg.length) parts.push(<span key={lastIdx}>{msg.slice(lastIdx)}</span>);
-    return parts.length > 0 ? parts : msg;
+    if (lastIdx < msg.length) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{msg.slice(lastIdx)}</span>);
+    return parts.length > 0 ? parts : <span style={{ whiteSpace: "pre-wrap" }}>{msg}</span>;
   };
 
   if (isSystem) {
     return (
-      <div className="cli-msg system">
-        <span style={{ color: "var(--text-disabled)" }}>ℹ {event.message}</span>
+      <div className="cli-line">
+        <span className="cli-timestamp">[{time}]</span>
+        <span className="cli-system-icon">ℹ</span>
+        <span className="cli-system-text">{event.message}</span>
       </div>
     );
   }
 
   if (isUser) {
     return (
-      <div className="cli-msg user" style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--text-primary)", display: "flex", gap: 6, alignItems: "flex-start", margin: "4px 0" }}>
-        <span style={{ color: "var(--accent-blue)", fontWeight: 600, userSelect: "none" }}>$›</span>
-        <div style={{ wordBreak: "break-all" }}>{event.message}</div>
+      <div className="cli-line">
+        <span className="cli-timestamp">[{time}]</span>
+        <span className="cli-prompt-indicator">$›</span>
+        <span className="cli-user-text">{event.message}</span>
       </div>
     );
   }
@@ -154,30 +157,40 @@ function EventMessage({ event }: { event: PipelineEvent }) {
   const isNodeEnd   = event.type === "node_end";
   const isDone      = event.type === "done";
 
+  let indicator = "●";
+  let indicatorColor = "var(--text-muted)";
+  if (isNodeStart) {
+    indicator = "⠋";
+    indicatorColor = "var(--accent-blue)";
+  } else if (isNodeEnd || isDone) {
+    indicator = "✔";
+    indicatorColor = "var(--accent-green)";
+  } else if (isError) {
+    indicator = "✗";
+    indicatorColor = "var(--accent-red)";
+  }
+
+  const label = event.node ? (NODE_LABELS[event.node] ?? event.node) : "";
+
   return (
-    <div className="cli-msg agent" style={isError ? { borderColor: "rgba(247,118,142,0.3)" } : {}}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        {event.node && (
-          <NodePill
-            node={event.node}
-            status={isNodeStart ? "running" : isNodeEnd ? "done" : isError ? "error" : "idle"}
-          />
-        )}
-        {isDone && (
-          <span className="pipeline-node done glow-green" style={{ fontSize: 11 }}>
-            <CheckCircle2 size={10} /> Pipeline Complete
-          </span>
-        )}
-        {isError && (
-          <span className="pipeline-node error" style={{ fontSize: 11 }}>
-            <AlertCircle size={10} /> Error
-          </span>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)", flexShrink: 0 }}>{time}</span>
-      </div>
-      <div style={{ color: isError ? "var(--accent-red)" : "var(--text-secondary)", fontSize: 12.5, lineHeight: 1.65 }}>
+    <div className={`cli-line ${isError ? "error" : ""}`}>
+      <span className="cli-timestamp">[{time}]</span>
+      <span className="cli-agent-indicator" style={{ color: indicatorColor }}>{indicator}</span>
+      {label && (
+        <span className="cli-node-tag" style={{
+          color: event.node === "developer_agent" ? "var(--accent-blue)"
+            : event.node === "semgrep_scan" ? "var(--accent-yellow)"
+            : event.node === "triage_agent" ? "var(--accent-purple)"
+            : event.node === "synthesizer_agent" ? "var(--accent-teal)"
+            : event.node === "e2b_execute" || event.node === "e2b_verify" ? "var(--accent-pink)"
+            : "var(--accent-cyan)"
+        }}>
+          [{label}]
+        </span>
+      )}
+      <span className="cli-agent-text">
         {renderContent(event.message)}
-      </div>
+      </span>
     </div>
   );
 }
@@ -602,6 +615,23 @@ export default function BottomPanel() {
     startGenerationPipeline(prompt, fileRelativePath, choice === "regenerate");
   };
 
+  // Listen for keyboard shortcuts when confirm dialog is active
+  useEffect(() => {
+    if (!confirmData) return;
+    const handleKey = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === "e") {
+        handleConfirmChoice("edit");
+      } else if (key === "r") {
+        handleConfirmChoice("regenerate");
+      } else if (key === "c" || e.key === "Escape") {
+        handleConfirmChoice("cancel");
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [confirmData]);
+
   // ── Submit handler ──────────────────────────────────────────────────────────
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -706,56 +736,62 @@ export default function BottomPanel() {
             {confirmData && (
               <div style={{
                 position: "absolute",
-                bottom: 54,
+                bottom: 60,
                 left: "50%",
                 transform: "translateX(-50%)",
-                background: "var(--bg-overlay)",
-                border: "1px solid var(--accent-blue)",
-                borderRadius: 8,
-                padding: "14px 18px",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+                background: "var(--bg-base)",
+                border: "1px solid var(--border-strong)",
+                borderRadius: 4,
+                padding: "16px 20px",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.8)",
                 zIndex: 1000,
                 width: "92%",
-                maxWidth: 440,
-                backdropFilter: "blur(8px)",
-                animation: "fadeSlideUp 0.2s ease-out forwards",
+                maxWidth: 480,
+                fontFamily: "var(--font-mono)",
+                animation: "fadeSlideUp 0.15s ease-out forwards",
               }}>
-                <h4 style={{ margin: "0 0 6px 0", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-                  Code Present in {confirmData.fileRelativePath}
+                <h4 style={{ margin: "0 0 8px 0", fontSize: 13, fontWeight: 600, color: "var(--accent-yellow)" }}>
+                  ⚠️ File contains code: {confirmData.fileRelativePath}
                 </h4>
-                <p style={{ margin: "0 0 14px 0", fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                  This file already contains code. Do you want to build on top of this code (Edit) or generate a new solution from scratch (Regenerate)?
+                <p style={{ margin: "0 0 16px 0", fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                  Choose execution mode:
+                  <br />
+                  • <strong style={{ color: "var(--accent-blue)" }}>[E]dit</strong>: build on top of existing code
+                  <br />
+                  • <strong style={{ color: "var(--accent-yellow)" }}>[R]egenerate</strong>: rewrite from scratch
+                  <br />
+                  • <strong style={{ color: "var(--text-muted)" }}>[C]ancel</strong> / Escape
                 </p>
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <button
                     onClick={() => handleConfirmChoice("cancel")}
                     style={{
-                      background: "none", border: "1px solid var(--border-subtle)", borderRadius: 5,
-                      color: "var(--text-secondary)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
-                      fontFamily: "var(--font-ui)",
+                      background: "none", border: "1px solid var(--border-default)", borderRadius: 3,
+                      color: "var(--text-secondary)", fontSize: 11, padding: "6px 14px", cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
                     }}
                   >
-                    Cancel
+                    [C]ancel
                   </button>
                   <button
                     onClick={() => handleConfirmChoice("regenerate")}
                     style={{
-                      background: "none", border: "1px solid var(--accent-yellow)", borderRadius: 5,
-                      color: "var(--accent-yellow)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
-                      fontFamily: "var(--font-ui)",
+                      background: "none", border: "1px solid var(--accent-yellow)", borderRadius: 3,
+                      color: "var(--accent-yellow)", fontSize: 11, padding: "6px 14px", cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
                     }}
                   >
-                    Regenerate (Overwrite)
+                    [R]egenerate
                   </button>
                   <button
                     onClick={() => handleConfirmChoice("edit")}
                     style={{
-                      background: "rgba(122, 162, 247, 0.15)", border: "1px solid rgba(122, 162, 247, 0.3)", borderRadius: 5,
-                      color: "var(--accent-blue)", fontSize: 11, padding: "5px 12px", cursor: "pointer",
-                      fontWeight: 600, fontFamily: "var(--font-ui)",
+                      background: "rgba(122, 162, 247, 0.1)", border: "1px solid var(--accent-blue)", borderRadius: 3,
+                      color: "var(--accent-blue)", fontSize: 11, padding: "6px 14px", cursor: "pointer",
+                      fontWeight: 600, fontFamily: "var(--font-mono)",
                     }}
                   >
-                    Edit Current Code
+                    [E]dit Code
                   </button>
                 </div>
               </div>
@@ -771,7 +807,7 @@ export default function BottomPanel() {
 
             {/* Prompt bar */}
             <form className="cli-prompt-bar" onSubmit={handleSubmit}>
-              <span className="cli-prompt-prefix">$›_</span>
+              <span className="cli-prompt-prefix">$›</span>
               <input
                 ref={inputRef}
                 id="cli-input"
@@ -796,16 +832,16 @@ export default function BottomPanel() {
                 onChange={e => setCurrentLanguage(e.target.value)}
                 disabled={isStreaming}
                 style={{
-                  background:   "var(--bg-overlay)",
+                  background:   "var(--bg-highlight)",
                   border:       "1px solid var(--border-subtle)",
-                  borderRadius: 4,
+                  borderRadius: 3,
                   color:        "var(--text-secondary)",
                   fontSize:     11,
-                  padding:      "4px 6px",
+                  padding:      "2px 6px",
                   cursor:       "pointer",
                   outline:      "none",
                   flexShrink:   0,
-                  fontFamily:   "var(--font-ui)",
+                  fontFamily:   "var(--font-mono)",
                 }}
               >
                 {SUPPORTED_LANGUAGES.map(l => (
@@ -817,13 +853,13 @@ export default function BottomPanel() {
                 type="submit"
                 disabled={isStreaming || !currentPrompt.trim()}
                 style={{
-                  background:    currentPrompt.trim() && !isStreaming ? "rgba(122, 162, 247, 0.15)" : "none",
+                  background:    currentPrompt.trim() && !isStreaming ? "rgba(158, 206, 106, 0.12)" : "none",
                   border:        "1px solid",
-                  borderColor:   currentPrompt.trim() && !isStreaming ? "rgba(122, 162, 247, 0.3)" : "var(--border-subtle)",
-                  borderRadius:  6,
+                  borderColor:   currentPrompt.trim() && !isStreaming ? "var(--accent-green)" : "var(--border-subtle)",
+                  borderRadius:  3,
                   cursor:        "pointer",
                   padding:       "4px 8px",
-                  color:         currentPrompt.trim() && !isStreaming ? "var(--accent-blue)" : "var(--text-disabled)",
+                  color:         currentPrompt.trim() && !isStreaming ? "var(--accent-green)" : "var(--text-disabled)",
                   display:       "flex",
                   alignItems:    "center",
                   transition:    "all 0.15s ease",

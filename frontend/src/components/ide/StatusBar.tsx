@@ -1,104 +1,124 @@
 "use client";
 
 import { useIDEStore } from "@/store/ideStore";
-import { GitBranch, AlertCircle, AlertTriangle, Cpu, Zap } from "lucide-react";
+import { GitBranch, AlertCircle, AlertTriangle, Cpu, Zap, Wifi, WifiOff } from "lucide-react";
+
+const LANGUAGES = ["javascript", "typescript", "python"];
 
 export default function StatusBar() {
   const {
     gitBranch, cursorLine, cursorCol,
     language, errors, warnings,
-    isStreaming, securityScore, scoreHistory,
-    panelOpen, setPanelOpen,
+    isStreaming, sessions, activeSessionId,
+    panelOpen, setPanelOpen, setActivePanelTab,
+    backendOnline, backendHealth,
+    currentLanguage, setCurrentLanguage,
   } = useIDEStore();
 
-  const scoreColor = securityScore === null
-    ? "var(--text-muted)"
-    : securityScore >= 80 ? "var(--accent-green)"
-    : securityScore >= 50 ? "var(--accent-yellow)"
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const score = activeSession?.finalScore;
+  const scoreColor = score === undefined ? "var(--text-muted)"
+    : score >= 80 ? "var(--accent-green)"
+    : score >= 50 ? "var(--accent-yellow)"
     : "var(--accent-red)";
 
   return (
     <div className="ide-statusbar">
-      {/* ── Left section ── */}
+      {/* ── Left ── */}
       <div className="statusbar-left">
 
-        {/* Git branch */}
+        {/* Backend status */}
         <span
-          id="statusbar-git"
-          className="statusbar-item statusbar-git"
-          title="Git Branch"
+          id="statusbar-backend"
+          className="statusbar-item"
+          style={{ color: backendOnline ? "var(--accent-green)" : "var(--accent-red)", gap: 4 }}
+          title={backendOnline
+            ? `Backend online · ${backendHealth?.checkpointer ?? ""} · LangSmith: ${backendHealth?.langsmith_tracing ? "active" : "off"}`
+            : "Backend offline — start: uvicorn main:app --reload"}
         >
+          {backendOnline ? <Wifi size={11} /> : <WifiOff size={11} />}
+          {backendOnline ? "backend" : "offline"}
+        </span>
+
+        {/* Git branch */}
+        <span id="statusbar-git" className="statusbar-item statusbar-git" title="Git branch">
           <GitBranch size={11} />
           {gitBranch}
         </span>
 
         {/* Errors */}
-        <span
-          id="statusbar-errors"
-          className="statusbar-item statusbar-errors"
-          title={`${errors} errors`}
-        >
+        <span id="statusbar-errors" className="statusbar-item statusbar-errors" title={`${errors} errors`}>
           <AlertCircle size={11} />
           {errors}
         </span>
 
         {/* Warnings */}
-        <span
-          id="statusbar-warnings"
-          className="statusbar-item statusbar-warnings"
-          title={`${warnings} warnings`}
-        >
+        <span id="statusbar-warnings" className="statusbar-item statusbar-warnings" title={`${warnings} warnings`}>
           <AlertTriangle size={11} />
           {warnings}
         </span>
 
-        {/* Streaming indicator */}
+        {/* Streaming */}
         {isStreaming && (
-          <span
-            className="statusbar-item"
-            style={{ color: "var(--accent-blue)", gap: 4 }}
-          >
+          <span className="statusbar-item" style={{ color: "var(--accent-blue)", gap: 4 }}>
             <span className="spinner" />
             Pipeline running…
           </span>
         )}
+
+        {/* LangSmith */}
+        {backendOnline && backendHealth?.langsmith_tracing && (
+          <span className="statusbar-item" style={{ color: "var(--accent-purple)", fontSize: 10 }}>
+            ◉ LangSmith
+          </span>
+        )}
       </div>
 
-      {/* ── Right section ── */}
+      {/* ── Right ── */}
       <div className="statusbar-right">
 
         {/* Security score */}
-        {securityScore !== null && (
+        {score !== undefined && (
           <span
             id="statusbar-score"
             className="statusbar-item"
             style={{ color: scoreColor, gap: 4 }}
-            title={`Security score: ${securityScore}/100 (${scoreHistory.length} iterations)`}
+            title={`Security score: ${score}/100`}
           >
             <Zap size={11} />
-            Score: {securityScore}/100
+            {score}/100
           </span>
         )}
 
-        {/* Language */}
-        <span
-          id="statusbar-lang"
-          className="statusbar-item statusbar-lang"
-          title="Language mode"
+        {/* Language selector */}
+        <select
+          id="statusbar-lang-select"
+          value={currentLanguage}
+          onChange={e => setCurrentLanguage(e.target.value)}
+          style={{
+            background: "transparent", border: "none", cursor: "pointer",
+            color: "var(--accent-teal)", fontSize: 11, outline: "none",
+            fontFamily: "var(--font-ui)", padding: "0 4px",
+          }}
+          title="Select language"
         >
+          {LANGUAGES.map(l => (
+            <option key={l} value={l} style={{ background: "var(--bg-elevated)", color: "var(--text-primary)" }}>
+              {l.charAt(0).toUpperCase() + l.slice(1)}
+            </option>
+          ))}
+        </select>
+
+        {/* File language mode */}
+        <span id="statusbar-lang" className="statusbar-item statusbar-lang" title="Language mode">
           {language}
         </span>
 
-        {/* Cursor position */}
-        <span
-          id="statusbar-cursor"
-          className="statusbar-item statusbar-pos"
-          title="Cursor position"
-        >
+        {/* Cursor */}
+        <span id="statusbar-cursor" className="statusbar-item statusbar-pos" title="Cursor position">
           Ln {cursorLine}, Col {cursorCol}
         </span>
 
-        {/* Encoding */}
         <span className="statusbar-item statusbar-pos">UTF-8</span>
 
         {/* Panel toggle */}
@@ -106,8 +126,8 @@ export default function StatusBar() {
           id="statusbar-panel-toggle"
           className="statusbar-item"
           style={{ color: "var(--accent-blue)", cursor: "pointer" }}
-          onClick={() => setPanelOpen(!panelOpen)}
-          title="Toggle panel"
+          onClick={() => { setPanelOpen(!panelOpen); setActivePanelTab("codesentinel"); }}
+          title="Toggle CodeSentinel panel"
         >
           <Cpu size={11} />
           CodeSentinel

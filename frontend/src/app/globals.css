@@ -1,6 +1,13 @@
 /* Fonts loaded via next/font in layout.tsx (no external @import needed) */
 @import "tailwindcss";
 
+/* Suppress Tailwind v4 default Google Fonts @import for Inter */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", monospace;
+  --font-serif: ui-serif, Georgia, serif;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    TOKEN NIGHT — Design System Variables
    Based on Tokyo Night palette — #0d0e14 deep dark base

@@ -1,258 +1,406 @@
 "use client";
 
-import { useIDEStore, PipelineEvent, PanelTab } from "@/store/ideStore";
+import { useIDEStore, ChatMessage, ChatSession } from "@/store/ideStore";
+import { streamGenerate, SSEEvent, PipelineState } from "@/lib/api";
 import {
-  Terminal,
-  Radio,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  Send,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Cpu,
-  Shield,
+  Terminal, Radio, Shield, Send, Trash2, ChevronDown,
+  Loader2, CheckCircle2, AlertCircle, AlertTriangle,
+  Cpu, Code2, Play, Copy, RotateCcw, ChevronRight,
 } from "lucide-react";
-import { useRef, useEffect, useState, FormEvent, KeyboardEvent } from "react";
+import { useRef, useEffect, useState, FormEvent, KeyboardEvent, useCallback } from "react";
 
 // ── Pipeline node order ───────────────────────────────────────────────────────
 const PIPELINE_NODES = [
-  "developer_agent",
-  "e2b_execute",
-  "semgrep_scan",
-  "triage_agent",
-  "synthesizer_agent",
-  "e2b_verify",
-  "finalize",
+  "developer_agent", "e2b_execute", "semgrep_scan",
+  "triage_agent", "synthesizer_agent", "e2b_verify", "finalize",
 ];
-
 const NODE_LABELS: Record<string, string> = {
   developer_agent:   "Developer",
   e2b_execute:       "E2B Execute",
-  semgrep_scan:      "Semgrep Scan",
+  semgrep_scan:      "Semgrep",
   triage_agent:      "Triage",
   synthesizer_agent: "Synthesizer",
   e2b_verify:        "E2B Verify",
   finalize:          "Finalize",
+  semantic_cache_hit: "Cache Hit",
 };
 
-// ── Node Status Pill ─────────────────────────────────────────────────────────
-function NodePill({ node, status }: { node: string; status: string }) {
-  const label = NODE_LABELS[node] ?? node;
-  const st = status || "idle";
+// ── Severity colors ───────────────────────────────────────────────────────────
+const SEV_COLOR: Record<string, string> = {
+  ERROR: "var(--accent-red)", WARNING: "var(--accent-yellow)", INFO: "var(--accent-teal)",
+};
 
+// ── Node pill ─────────────────────────────────────────────────────────────────
+function NodePill({ node, status }: { node: string; status?: string }) {
+  const st = status ?? "idle";
   return (
     <span className={`pipeline-node ${st} ${st === "running" ? "glow-blue" : st === "done" ? "glow-green" : ""}`}>
       {st === "running" && <span className="spinner" />}
       {st === "done"    && <CheckCircle2 size={10} />}
-      {st === "error"   && <AlertCircle size={10} />}
-      {label}
+      {st === "error"   && <AlertCircle  size={10} />}
+      {NODE_LABELS[node] ?? node}
     </span>
   );
 }
 
-// ── Security Score Badge ──────────────────────────────────────────────────────
+// ── Score badge ───────────────────────────────────────────────────────────────
 function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 80 ? "var(--accent-green)"
-    : score >= 50 ? "var(--accent-yellow)"
-    : "var(--accent-red)";
-  const glow = score >= 80 ? "glow-green" : score >= 50 ? "" : "glow-red";
-
+  const color = score >= 80 ? "var(--accent-green)" : score >= 50 ? "var(--accent-yellow)" : "var(--accent-red)";
   return (
-    <div
-      className={`pipeline-node ${glow}`}
-      style={{
-        borderColor: color,
-        color,
-        background: `${color}22`,
-        gap: 6,
-        fontSize: 12,
-        padding: "3px 12px",
-      }}
-    >
-      <Shield size={12} />
-      Score: <strong>{score}/100</strong>
-    </div>
+    <span className="pipeline-node" style={{ borderColor: color, color, background: `${color}22`, gap: 6 }}>
+      <Shield size={10} />
+      {score}/100
+    </span>
   );
 }
 
-// ── Message Renderer ─────────────────────────────────────────────────────────
-function EventMessage({ event }: { event: PipelineEvent }) {
-  const isUser   = event.type === "user";
-  const isSystem = event.type === "system";
-  const isError  = event.type === "error";
-
-  const time = event.timestamp.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
-  // Detect code blocks in message
-  const renderContent = (msg: string) => {
-    const codeRegex = /```(\w+)?\n?([\s\S]*?)```/g;
-    const parts: React.ReactNode[] = [];
-    let lastIdx = 0;
-    let m;
-
-    while ((m = codeRegex.exec(msg)) !== null) {
-      if (m.index > lastIdx) {
-        parts.push(
-          <span key={lastIdx}>{msg.slice(lastIdx, m.index)}</span>
-        );
-      }
-      parts.push(
-        <pre key={m.index} className="cli-code-block">
-          <code>{m[2].trim()}</code>
-        </pre>
-      );
-      lastIdx = m.index + m[0].length;
-    }
-    if (lastIdx < msg.length) {
-      parts.push(<span key={lastIdx}>{msg.slice(lastIdx)}</span>);
-    }
-    return parts.length > 0 ? parts : msg;
-  };
-
-  if (isSystem) {
-    return (
-      <div className="cli-msg system">
-        <span style={{ color: "var(--text-disabled)" }}>ℹ {event.message}</span>
-      </div>
-    );
-  }
-
-  if (isUser) {
-    return (
-      <div className="cli-msg user">
-        <div style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 4,
-        }}>
-          <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600 }}>
-            You
-          </span>
-          <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
-        </div>
-        <div style={{ color: "var(--text-primary)" }}>{event.message}</div>
-      </div>
-    );
-  }
-
-  // Agent / node event
-  const isNodeStart = event.type === "node_start";
-  const isNodeEnd   = event.type === "node_end";
-  const isDone      = event.type === "done";
-
-  return (
-    <div className={`cli-msg agent ${isError ? "" : ""}`}
-      style={isError ? { borderColor: "rgba(247,118,142,0.3)" } : {}}
-    >
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        marginBottom: 6,
-      }}>
-        {/* Node badge */}
-        {event.node && (
-          <NodePill
-            node={event.node}
-            status={isNodeStart ? "running" : isNodeEnd ? "done" : isError ? "error" : "idle"}
-          />
-        )}
-        {isDone && (
-          <span
-            className="pipeline-node done glow-green"
-            style={{ fontSize: 11 }}
-          >
-            <CheckCircle2 size={10} /> Pipeline Complete
-          </span>
-        )}
-        {isError && (
-          <span className="pipeline-node error" style={{ fontSize: 11 }}>
-            <AlertCircle size={10} /> Error
-          </span>
-        )}
-        <span style={{
-          marginLeft: "auto",
-          fontSize: 10,
-          color: "var(--text-disabled)",
-          flexShrink: 0,
-        }}>
-          {time}
-        </span>
-      </div>
-      <div style={{
-        color: isError ? "var(--accent-red)" : "var(--text-secondary)",
-        fontSize: 12.5,
-        lineHeight: 1.65,
-      }}>
-        {renderContent(event.message)}
-      </div>
-    </div>
-  );
-}
-
-// ── Pipeline Progress Bar ─────────────────────────────────────────────────────
-function PipelineProgress() {
-  const { nodeStatuses, isStreaming, securityScore } = useIDEStore();
-
-  if (!isStreaming && Object.keys(nodeStatuses).length === 0) return null;
-
+// ── Pipeline progress bar ─────────────────────────────────────────────────────
+function PipelineProgress({ nodeStatuses, score }: { nodeStatuses: Record<string, string>; score?: number }) {
+  const hasAny = Object.keys(nodeStatuses).length > 0;
+  if (!hasAny && score === undefined) return null;
   return (
     <div style={{
-      padding: "8px 14px 6px",
+      padding: "6px 14px",
       borderBottom: "1px solid var(--border-subtle)",
       display: "flex",
       alignItems: "center",
-      gap: 6,
+      gap: 5,
       flexWrap: "wrap",
       flexShrink: 0,
+      background: "rgba(13,14,20,0.6)",
     }}>
-      <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 4, whiteSpace: "nowrap" }}>
-        <Cpu size={11} style={{ display: "inline", marginRight: 4 }} />
-        Pipeline:
-      </span>
-      {PIPELINE_NODES.map(node => (
-        <NodePill
-          key={node}
-          node={node}
-          status={nodeStatuses[node] ?? "idle"}
-        />
+      <Cpu size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+      <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 2 }}>Pipeline:</span>
+      {PIPELINE_NODES.map(n => (
+        <NodePill key={n} node={n} status={nodeStatuses[n]} />
       ))}
-      {securityScore !== null && (
-        <ScoreBadge score={securityScore} />
+      {score !== undefined && <ScoreBadge score={score} />}
+    </div>
+  );
+}
+
+// ── Message renderer ──────────────────────────────────────────────────────────
+function MessageBubble({ msg }: { msg: ChatMessage }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const time = new Date(msg.timestamp).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+
+  const renderContent = (text: string) => {
+    const parts: React.ReactNode[] = [];
+    const regex = /```(\w*)\n?([\s\S]*?)```/g;
+    let last = 0, m;
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index > last) parts.push(<span key={last}>{text.slice(last, m.index)}</span>);
+      const lang = m[1];
+      const code = m[2].trim();
+      parts.push(
+        <div key={m.index} style={{ position: "relative", marginTop: 8 }}>
+          {lang && <span style={{ fontSize: 10, color: "var(--accent-teal)", marginBottom: 4, display: "block" }}>{lang}</span>}
+          <pre className="cli-code-block">{code}</pre>
+          <button onClick={() => copy(code)} style={{
+            position: "absolute", top: lang ? 20 : 4, right: 8,
+            background: "var(--bg-overlay)", border: "1px solid var(--border-default)",
+            borderRadius: 4, padding: "2px 6px", fontSize: 10,
+            color: copied ? "var(--accent-green)" : "var(--text-muted)", cursor: "pointer",
+          }}>
+            {copied ? "✓" : <Copy size={10} />}
+          </button>
+        </div>
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push(<span key={last}>{text.slice(last)}</span>);
+    return parts.length ? parts : text;
+  };
+
+  if (msg.role === "system") {
+    return (
+      <div style={{ textAlign: "center", padding: "4px 0" }}>
+        <span style={{ fontSize: 11, color: "var(--text-disabled)", background: "var(--bg-overlay)", padding: "2px 10px", borderRadius: 999 }}>
+          {msg.content}
+        </span>
+      </div>
+    );
+  }
+
+  if (msg.role === "user") {
+    return (
+      <div className="cli-msg user">
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600 }}>You</span>
+          <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
+        </div>
+        <div style={{ color: "var(--text-primary)" }}>{msg.content}</div>
+      </div>
+    );
+  }
+
+  if (msg.role === "node_start" || msg.role === "node_end") {
+    const isStart = msg.role === "node_start";
+    return (
+      <div className="cli-msg agent" style={{ padding: "6px 10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {msg.node && <NodePill node={msg.node} status={isStart ? "running" : (msg.nodeStatus ?? "done")} />}
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
+        </div>
+        {msg.content && (
+          <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-muted)" }}>{msg.content}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (msg.role === "done") {
+    return (
+      <div className="cli-msg agent" style={{ borderColor: "rgba(158,206,106,0.2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <span className="pipeline-node done glow-green">
+            <CheckCircle2 size={10} /> Pipeline Complete
+          </span>
+          {msg.scoreHistory && msg.scoreHistory.length > 0 && (
+            <ScoreBadge score={msg.scoreHistory[msg.scoreHistory.length - 1]} />
+          )}
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.65 }}>
+          {renderContent(msg.content)}
+        </div>
+        {msg.codeBlock && (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <Code2 size={11} style={{ color: "var(--accent-teal)" }} />
+              <span style={{ fontSize: 11, color: "var(--accent-teal)" }}>Generated Code</span>
+              <button onClick={() => copy(msg.codeBlock!)} style={{
+                marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
+                color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, fontSize: 11,
+              }}>
+                <Copy size={10} /> {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <pre className="cli-code-block" style={{ maxHeight: 200, overflow: "auto" }}>
+              {msg.codeBlock.slice(0, 2000)}{msg.codeBlock.length > 2000 ? "\n... (see editor)" : ""}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (msg.role === "error") {
+    return (
+      <div className="cli-msg agent" style={{ borderColor: "rgba(247,118,142,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <span className="pipeline-node error"><AlertCircle size={10} /> Error</span>
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
+        </div>
+        <div style={{ color: "var(--accent-red)", fontSize: 12 }}>{msg.content}</div>
+      </div>
+    );
+  }
+
+  if (msg.role === "cache") {
+    return (
+      <div className="cli-msg agent" style={{ borderColor: "rgba(187,154,247,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <span className="pipeline-node" style={{ borderColor: "var(--accent-purple)", color: "var(--accent-purple)", background: "rgba(187,154,247,0.1)" }}>
+            ⚡ Semantic Cache Hit
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)" }}>{time}</span>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{msg.content}</div>
+      </div>
+    );
+  }
+
+  // Generic agent message
+  return (
+    <div className="cli-msg agent">
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.65 }}>
+        {renderContent(msg.content)}
+      </div>
+      <span style={{ fontSize: 10, color: "var(--text-disabled)", marginTop: 4, display: "block" }}>{time}</span>
+    </div>
+  );
+}
+
+// ── Findings panel ────────────────────────────────────────────────────────────
+function FindingsPanel({ session }: { session: ChatSession | null }) {
+  const findings = session?.findings ?? [];
+  const triage = session?.triageOutput;
+
+  if (!session) {
+    return <div className="cli-log"><div style={{ color: "var(--text-disabled)", fontSize: 12 }}>No active session.</div></div>;
+  }
+
+  return (
+    <div className="cli-log">
+      {triage && (
+        <div style={{ marginBottom: 10, padding: "8px 12px", background: "var(--bg-elevated)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>Triage Verdict</span>
+            <span style={{
+              padding: "2px 8px", borderRadius: 999, fontSize: 11,
+              background: triage.verdict === "clean" ? "rgba(158,206,106,0.15)" : "rgba(247,118,142,0.15)",
+              color: triage.verdict === "clean" ? "var(--accent-green)" : "var(--accent-red)",
+              border: `1px solid ${triage.verdict === "clean" ? "var(--accent-green)" : "var(--accent-red)"}`,
+            }}>
+              {triage.verdict === "clean" ? "✓ Clean" : "⚠ Fix Required"}
+            </span>
+            <ScoreBadge score={triage.security_score} />
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>{triage.reasoning}</p>
+        </div>
+      )}
+
+      {session.scoreHistory && session.scoreHistory.length > 1 && (
+        <div style={{ marginBottom: 10, padding: "8px 12px", background: "var(--bg-elevated)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>Score History</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {session.scoreHistory.map((s, i) => (
+              <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {i > 0 && <ChevronRight size={10} style={{ color: "var(--text-disabled)" }} />}
+                <ScoreBadge score={s} />
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {findings.length === 0 ? (
+        <div style={{ color: "var(--text-disabled)", fontSize: 12, textAlign: "center", marginTop: 20 }}>
+          {session.finalScore === 100 ? "✓ No findings — code is clean!" : "Run pipeline to see findings."}
+        </div>
+      ) : (
+        findings.map((f, i) => (
+          <div key={i} style={{
+            padding: "8px 12px", background: "var(--bg-elevated)", borderRadius: 6,
+            border: `1px solid ${SEV_COLOR[f.severity] ?? "var(--border-subtle)"}22`,
+            marginBottom: 6,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <AlertTriangle size={12} style={{ color: SEV_COLOR[f.severity] }} />
+              <span style={{ fontSize: 11, fontWeight: 600, color: SEV_COLOR[f.severity] }}>{f.severity}</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>L{f.line}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-primary)", marginBottom: 4 }}>{f.message}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{f.check_id}</div>
+            {(f.cwe.length > 0 || f.owasp.length > 0) && (
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                {f.cwe.map(c => (
+                  <span key={c} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "rgba(247,118,142,0.1)", color: "var(--accent-red)", border: "1px solid rgba(247,118,142,0.2)" }}>{c}</span>
+                ))}
+                {f.owasp.map(o => (
+                  <span key={o} style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "rgba(122,162,247,0.1)", color: "var(--accent-blue)", border: "1px solid rgba(122,162,247,0.2)" }}>{o}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+
+      {session.executionStdout && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "var(--accent-green)", marginBottom: 4 }}>stdout</div>
+          <pre className="cli-code-block">{session.executionStdout}</pre>
+        </div>
+      )}
+      {session.executionStderr && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "var(--accent-red)", marginBottom: 4 }}>stderr</div>
+          <pre className="cli-code-block" style={{ color: "var(--accent-red)" }}>{session.executionStderr}</pre>
+        </div>
       )}
     </div>
   );
 }
 
-// ── Bottom Panel ─────────────────────────────────────────────────────────────
+// ── Output panel (execution + audit trail) ────────────────────────────────────
+function OutputPanel({ session }: { session: ChatSession | null }) {
+  if (!session) return <div className="cli-log"><div style={{ color: "var(--text-disabled)", fontSize: 12 }}>No active session.</div></div>;
+
+  return (
+    <div className="cli-log">
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+        Project: <span style={{ color: "var(--accent-blue)" }}>{session.id}</span>
+        {session.devRetries !== undefined && (
+          <> · Dev retries: <span style={{ color: "var(--accent-yellow)" }}>{session.devRetries}</span></>
+        )}
+        {session.securityIterations !== undefined && (
+          <> · Sec iterations: <span style={{ color: "var(--accent-purple)" }}>{session.securityIterations}</span></>
+        )}
+      </div>
+
+      {session.executionStdout && (
+        <div>
+          <div style={{ fontSize: 11, color: "var(--accent-green)", marginBottom: 4 }}>
+            ✓ Execution stdout {session.executionSuccess ? "(success)" : ""}
+          </div>
+          <pre className="cli-code-block">{session.executionStdout}</pre>
+        </div>
+      )}
+      {session.executionStderr && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "var(--accent-red)", marginBottom: 4 }}>✗ Execution stderr</div>
+          <pre className="cli-code-block" style={{ color: "var(--accent-red)" }}>{session.executionStderr}</pre>
+        </div>
+      )}
+
+      {session.auditTrail && session.auditTrail.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>Audit Trail ({session.auditTrail.length} iterations)</div>
+          {session.auditTrail.map((entry, i) => (
+            <div key={i} style={{ padding: "6px 10px", background: "var(--bg-elevated)", borderRadius: 6, marginBottom: 4, border: "1px solid var(--border-subtle)" }}>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Iteration {i + 1}</div>
+              <pre style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "auto", maxHeight: 100 }}>
+                {JSON.stringify(entry, null, 2).slice(0, 500)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!session.executionStdout && !session.auditTrail?.length && (
+        <div style={{ color: "var(--text-disabled)", fontSize: 12 }}>No output yet. Run pipeline first.</div>
+      )}
+    </div>
+  );
+}
+
+// ── Main BottomPanel ──────────────────────────────────────────────────────────
 export default function BottomPanel() {
   const {
     panelOpen, setPanelOpen,
     activePanelTab, setActivePanelTab,
-    pipelineEvents, isStreaming,
+    sessions, activeSessionId,
+    isStreaming, nodeStatuses,
     currentPrompt, setCurrentPrompt,
-    addEvent, setStreaming, setNodeStatus, setSecurityScore,
-    clearEvents,
-    tabs, activeTabId, updateTabContent,
+    currentLanguage,
+    createSession, addMessage, updateSession, applyDoneState,
+    setStreaming, setNodeStatus, resetNodeStatuses,
+    backendOnline,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
+  const abortRef  = useRef<(() => void) | null>(null);
 
-  // Auto-scroll
+  const activeSession = sessions.find(s => s.id === activeSessionId) ?? null;
+
+  // Auto-scroll chat
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [pipelineEvents]);
+  }, [activeSession?.messages?.length]);
 
-  // ── SSE submit ──────────────────────────────────────────────────────────────
-  const handleSubmit = async (e?: FormEvent) => {
+  // ── Submit pipeline ──────────────────────────────────────────────────────────
+  const handleSubmit = useCallback(async (e?: FormEvent) => {
     e?.preventDefault();
     const prompt = currentPrompt.trim();
     if (!prompt || isStreaming) return;
@@ -260,112 +408,114 @@ export default function BottomPanel() {
     setCurrentPrompt("");
     setActivePanelTab("codesentinel");
     setStreaming(true);
-    clearEvents();
+    resetNodeStatuses();
 
-    addEvent({ type: "user", message: prompt });
-    addEvent({ type: "system", message: "Connecting to CodeSentinel pipeline..." });
+    // Create a new session
+    const session = createSession(prompt, currentLanguage);
+    const sid = session.id;
 
-    try {
-      const resp = await fetch("http://localhost:8000/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, language: "javascript" }),
-      });
+    addMessage(sid, { role: "user", content: prompt });
+    addMessage(sid, { role: "system", content: "Connecting to CodeSentinel backend…" });
 
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const evt = JSON.parse(raw);
-            processSSEEvent(evt);
-          } catch {/* skip malformed */}
-        }
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      addEvent({ type: "error", message: `Connection failed: ${message}. Make sure the backend is running on http://localhost:8000` });
-    } finally {
-      setStreaming(false);
-    }
-  };
-
-  // ── Process SSE events ──────────────────────────────────────────────────────
-  const processSSEEvent = (evt: Record<string, unknown>) => {
-    const evtType = evt.event as string ?? evt.type as string;
-    const data = evt.data as Record<string, unknown> ?? {};
-
-    if (evtType === "on_chain_start" || evtType === "node_start") {
-      const node = (data.name ?? evt.name) as string;
-      if (node && PIPELINE_NODES.includes(node)) {
-        setNodeStatus(node, "running");
-        addEvent({ type: "node_start", node, message: `Starting ${NODE_LABELS[node] ?? node}…` });
-      }
-    } else if (evtType === "on_chain_end" || evtType === "node_end") {
-      const node = (data.name ?? evt.name) as string;
-      if (node && PIPELINE_NODES.includes(node)) {
-        setNodeStatus(node, "done");
-        const output = data.output as Record<string, unknown> ?? {};
-        const score = output.security_score as number;
-        if (score !== undefined) {
-          setSecurityScore(score);
-          addEvent({ type: "node_end", node, message: `${NODE_LABELS[node]} complete. Security score: ${score}/100` });
-        } else {
-          addEvent({ type: "node_end", node, message: `${NODE_LABELS[node] ?? node} completed.` });
-        }
-
-        // If we get final code, update editor
-        const finalCode = output.final_code as string ?? output.current_code as string;
-        if (finalCode) {
-          const activeTab = tabs.find(t => t.id === activeTabId);
-          if (activeTab) {
-            updateTabContent(activeTabId!, finalCode);
+    // Stream from backend
+    const abort = streamGenerate(
+      { prompt, language: currentLanguage },
+      (evt: SSEEvent) => {
+        switch (evt.type) {
+          case "node_start": {
+            const { node } = evt.data;
+            setNodeStatus(node, "running");
+            addMessage(sid, { role: "node_start", node, content: `${NODE_LABELS[node] ?? node} started…`, nodeStatus: "running" });
+            break;
+          }
+          case "node_end": {
+            const { node, output } = evt.data;
+            setNodeStatus(node, "done");
+            const score = (output as Partial<PipelineState>).security_score;
+            addMessage(sid, {
+              role: "node_end",
+              node,
+              content: score !== undefined
+                ? `${NODE_LABELS[node] ?? node} done — security score: ${score}/100`
+                : `${NODE_LABELS[node] ?? node} done`,
+              nodeStatus: "done",
+            });
+            // Update partial session state as it arrives
+            updateSession(sid, {
+              finalScore: score ?? activeSession?.finalScore,
+              scoreHistory: (output as Partial<PipelineState>).score_history ?? activeSession?.scoreHistory,
+            });
+            break;
+          }
+          case "done": {
+            const state = evt.data;
+            applyDoneState(sid, state);
+            // Update project_id from backend (backend assigns one)
+            if (state.project_id && state.project_id !== sid) {
+              updateSession(sid, { id: state.project_id } as never);
+            }
+            const code = state.final_code || state.current_code;
+            addMessage(sid, {
+              role: "done",
+              content: `Pipeline complete. Security score: ${state.security_score}/100. Final code loaded in editor.`,
+              codeBlock: code?.slice(0, 3000),
+              scoreHistory: state.score_history,
+            });
+            break;
+          }
+          case "error": {
+            const { message } = evt.data;
+            setNodeStatus("error", "error");
+            addMessage(sid, { role: "error", content: message });
+            break;
           }
         }
+      },
+      () => { // onDone
+        setStreaming(false);
+        abortRef.current = null;
+      },
+      (msg) => { // onError
+        addMessage(sid, { role: "error", content: `Connection error: ${msg}\n\nMake sure backend is running: cd backend && uvicorn main:app --reload` });
+        setStreaming(false);
+        abortRef.current = null;
       }
-    } else if (evtType === "done") {
-      addEvent({ type: "done", message: "Pipeline completed successfully. Final code is ready in the editor." });
-    } else if (evtType === "error") {
-      addEvent({ type: "error", message: (evt.message ?? "Pipeline error") as string });
+    );
+
+    abortRef.current = abort;
+  }, [
+    currentPrompt, currentLanguage, isStreaming, activeSession,
+    createSession, addMessage, updateSession, applyDoneState,
+    setCurrentPrompt, setActivePanelTab, setStreaming, resetNodeStatuses, setNodeStatus,
+  ]);
+
+  const handleStop = () => {
+    abortRef.current?.();
+    abortRef.current = null;
+    setStreaming(false);
+    if (activeSessionId) {
+      addMessage(activeSessionId, { role: "system", content: "Pipeline stopped by user." });
     }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
   };
 
-  if (!panelOpen) {
-    return (
-      <div className="ide-panel" style={{ height: 0, overflow: "hidden" }} />
-    );
-  }
+  if (!panelOpen) return <div className="ide-panel" style={{ height: 0, overflow: "hidden" }} />;
 
-  const PANEL_TABS: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
-    { id: "codesentinel", label: "CodeSentinel", icon: <Shield size={12} /> },
-    { id: "terminal",     label: "Terminal",     icon: <Terminal size={12} /> },
-    { id: "output",       label: "Output",       icon: <Radio size={12} /> },
+  const PANEL_TABS = [
+    { id: "codesentinel" as const, label: "CodeSentinel", icon: <Shield size={12} /> },
+    { id: "findings"     as const, label: "Findings",     icon: <AlertTriangle size={12} /> },
+    { id: "output"       as const, label: "Output",       icon: <Radio size={12} /> },
+    { id: "terminal"     as const, label: "Terminal",     icon: <Terminal size={12} /> },
   ];
+
+  const activeScore = activeSession?.finalScore;
 
   return (
     <div className="ide-panel">
-      {/* Panel tab bar */}
+      {/* Tab bar */}
       <div className="panel-tabs">
         {PANEL_TABS.map(pt => (
           <button
@@ -376,59 +526,48 @@ export default function BottomPanel() {
           >
             {pt.icon}
             {pt.label}
-            {pt.id === "codesentinel" && isStreaming && (
-              <span className="spinner" style={{ marginLeft: 4 }} />
-            )}
+            {pt.id === "codesentinel" && isStreaming && <span className="spinner" style={{ marginLeft: 4 }} />}
+            {pt.id === "findings" && activeSession?.findings?.length
+              ? <span style={{ marginLeft: 4, background: "var(--accent-red)", color: "#fff", borderRadius: 999, fontSize: 10, padding: "0 5px", minWidth: 16, textAlign: "center" }}>{activeSession.findings.length}</span>
+              : null}
           </button>
         ))}
 
-        {/* Right controls */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
-          <button
-            title="Clear"
-            onClick={clearEvents}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-muted)",
-              padding: "2px 6px",
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <Trash2 size={12} />
-          </button>
-          <button
-            title="Close panel"
-            onClick={() => setPanelOpen(false)}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-muted)",
-              padding: "2px 6px",
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <ChevronDown size={13} />
-          </button>
+        {/* Backend status dot */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", marginRight: 8 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: backendOnline ? "var(--accent-green)" : "var(--accent-red)",
+          }} title={backendOnline ? "Backend online" : "Backend offline"} />
+          <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{backendOnline ? "connected" : "offline"}</span>
         </div>
+
+        <button
+          title="Close panel"
+          onClick={() => setPanelOpen(false)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "2px 8px", display: "flex", alignItems: "center" }}
+        >
+          <ChevronDown size={13} />
+        </button>
       </div>
 
-      {/* Panel Content */}
+      {/* Panel content */}
       <div className="panel-content">
+        {/* ── CodeSentinel chat tab ── */}
         {activePanelTab === "codesentinel" && (
           <>
-            <PipelineProgress />
+            <PipelineProgress nodeStatuses={nodeStatuses} score={activeScore} />
 
-            {/* Chat log */}
             <div className="cli-log">
-              {pipelineEvents.map(evt => (
-                <EventMessage key={evt.id} event={evt} />
+              {!activeSession && (
+                <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-disabled)" }}>
+                  <Shield size={28} style={{ opacity: 0.2, marginBottom: 10 }} />
+                  <p style={{ fontSize: 13, color: "var(--text-muted)" }}>CodeSentinel ready</p>
+                  <p style={{ fontSize: 12, marginTop: 6 }}>Type a requirement below to start the security pipeline.</p>
+                </div>
+              )}
+              {activeSession?.messages.map(msg => (
+                <MessageBubble key={msg.id} msg={msg} />
               ))}
               <div ref={logEndRef} />
             </div>
@@ -440,11 +579,7 @@ export default function BottomPanel() {
                 ref={inputRef}
                 id="cli-input"
                 className="cli-input"
-                placeholder={
-                  isStreaming
-                    ? "Pipeline running…"
-                    : "Describe the Node.js code to generate and secure…"
-                }
+                placeholder={isStreaming ? "Pipeline running…" : "Describe Node.js code to generate and secure…"}
                 value={currentPrompt}
                 onChange={e => setCurrentPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -452,53 +587,60 @@ export default function BottomPanel() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              <button
-                type="submit"
-                disabled={isStreaming || !currentPrompt.trim()}
-                style={{
-                  background: currentPrompt.trim() && !isStreaming
-                    ? "rgba(122, 162, 247, 0.15)"
-                    : "none",
-                  border: "1px solid",
-                  borderColor: currentPrompt.trim() && !isStreaming
-                    ? "rgba(122, 162, 247, 0.3)"
-                    : "var(--border-subtle)",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  padding: "4px 8px",
-                  color: currentPrompt.trim() && !isStreaming
-                    ? "var(--accent-blue)"
-                    : "var(--text-disabled)",
-                  display: "flex",
-                  alignItems: "center",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {isStreaming
-                  ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
-                  : <Send size={13} />
-                }
-              </button>
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  style={{
+                    background: "rgba(247,118,142,0.15)", border: "1px solid rgba(247,118,142,0.3)",
+                    borderRadius: 6, cursor: "pointer", padding: "4px 10px",
+                    color: "var(--accent-red)", display: "flex", alignItems: "center", gap: 4, fontSize: 12,
+                  }}
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!currentPrompt.trim()}
+                  style={{
+                    background: currentPrompt.trim() ? "rgba(122,162,247,0.15)" : "none",
+                    border: "1px solid",
+                    borderColor: currentPrompt.trim() ? "rgba(122,162,247,0.3)" : "var(--border-subtle)",
+                    borderRadius: 6, cursor: "pointer", padding: "4px 8px",
+                    color: currentPrompt.trim() ? "var(--accent-blue)" : "var(--text-disabled)",
+                    display: "flex", alignItems: "center", transition: "all 0.15s ease",
+                  }}
+                >
+                  <Send size={13} />
+                </button>
+              )}
             </form>
           </>
         )}
 
+        {/* ── Findings tab ── */}
+        {activePanelTab === "findings" && <FindingsPanel session={activeSession} />}
+
+        {/* ── Output tab ── */}
+        {activePanelTab === "output" && <OutputPanel session={activeSession} />}
+
+        {/* ── Terminal tab ── */}
         {activePanelTab === "terminal" && (
           <div className="cli-log">
-            <div style={{ color: "var(--accent-green)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-              bash-5.2$ <span style={{ color: "var(--text-secondary)" }}>cd /Users/kuldeepsinh/Desktop/CodeSentinel</span>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+              <span style={{ color: "var(--accent-green)" }}>bash-5.2$</span>
+              <span style={{ color: "var(--text-secondary)", marginLeft: 8 }}>cd /Users/kuldeepsinh/Desktop/CodeSentinel/backend</span>
             </div>
-            <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-              Use the integrated terminal or open an external terminal.
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, marginTop: 4 }}>
+              <span style={{ color: "var(--accent-green)" }}>bash-5.2$</span>
+              <span style={{ color: "var(--text-secondary)", marginLeft: 8 }}>uvicorn main:app --reload --port 8000</span>
             </div>
-          </div>
-        )}
-
-        {activePanelTab === "output" && (
-          <div className="cli-log">
-            <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-              <span style={{ color: "var(--accent-teal)" }}>[INFO]</span> CodeSentinel backend not connected. Start the backend server to see output.
-            </div>
+            {!backendOnline && (
+              <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(247,118,142,0.08)", border: "1px solid rgba(247,118,142,0.2)", borderRadius: 6 }}>
+                <p style={{ fontSize: 12, color: "var(--accent-red)" }}>Backend offline. Run command above to start.</p>
+              </div>
+            )}
           </div>
         )}
       </div>

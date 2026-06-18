@@ -1,8 +1,16 @@
 "use client";
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type {
+  Project,
+  Generation,
+  TriageOutput,
+  SemgrepFinding,
+  PipelineState,
+} from "@/lib/api";
 
-// ── File Tree Types ──────────────────────────────────────────────────────────
+// ── File Tree ─────────────────────────────────────────────────────────────────
 export interface FileNode {
   id: string;
   name: string;
@@ -10,10 +18,9 @@ export interface FileNode {
   language?: string;
   content?: string;
   children?: FileNode[];
-  isOpen?: boolean;
 }
 
-// ── Tab Types ────────────────────────────────────────────────────────────────
+// ── Tab ───────────────────────────────────────────────────────────────────────
 export interface Tab {
   id: string;
   fileId: string;
@@ -23,22 +30,62 @@ export interface Tab {
   isDirty?: boolean;
 }
 
-// ── Pipeline Event Types ─────────────────────────────────────────────────────
-export type NodeStatus = "idle" | "running" | "done" | "error";
+// ── Chat message (one message in a session) ───────────────────────────────────
+export type ChatRole = "user" | "agent" | "system" | "node_start" | "node_end" | "done" | "error" | "cache";
 
-export interface PipelineEvent {
+export interface ChatMessage {
   id: string;
-  type: "node_start" | "node_end" | "done" | "error" | "user" | "system";
+  role: ChatRole;
+  content: string;
   node?: string;
-  message: string;
-  timestamp: Date;
-  data?: unknown;
+  timestamp: string; // ISO
+  nodeStatus?: "running" | "done" | "error";
+  codeBlock?: string;
+  scoreHistory?: number[];
 }
 
-export type PanelTab = "codesentinel" | "terminal" | "output";
-export type ActivityView = "explorer" | "search" | "git" | "settings";
+// ── Chat Session (= one pipeline run, tied to a project) ─────────────────────
+export interface ChatSession {
+  id: string;                    // project_id
+  projectName: string;
+  prompt: string;
+  language: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+  finalCode?: string;
+  finalScore?: number;
+  scoreHistory?: number[];
+  triageOutput?: TriageOutput;
+  findings?: SemgrepFinding[];
+  executionStdout?: string;
+  executionStderr?: string;
+  executionSuccess?: boolean;
+  devRetries?: number;
+  securityIterations?: number;
+  auditTrail?: Array<Record<string, unknown>>;
+  // From backend Project record (loaded from API)
+  backendProject?: Project;
+  generations?: Generation[];
+}
 
-// ── Store Interface ──────────────────────────────────────────────────────────
+// ── Node status ───────────────────────────────────────────────────────────────
+export type NodeStatus = "idle" | "running" | "done" | "error";
+
+// ── Panel / view types ────────────────────────────────────────────────────────
+export type PanelTab     = "codesentinel" | "terminal" | "output" | "findings";
+export type ActivityView = "explorer" | "history" | "git" | "settings";
+
+// ── Backend health ────────────────────────────────────────────────────────────
+export interface BackendHealth {
+  status: string;
+  graph_ready: boolean;
+  checkpointer: string;
+  langsmith_tracing: boolean;
+  langsmith_project: string;
+}
+
+// ── Store interface ───────────────────────────────────────────────────────────
 interface IDEStore {
   // Sidebar
   sidebarOpen: boolean;
@@ -47,22 +94,28 @@ interface IDEStore {
   selectedFileId: string | null;
   expandedFolders: Set<string>;
 
-  // Editor Tabs
+  // Tabs
   tabs: Tab[];
   activeTabId: string | null;
 
-  // Bottom Panel
+  // Panel
   panelOpen: boolean;
   activePanelTab: PanelTab;
   panelHeight: number;
 
-  // Pipeline / CLI
-  pipelineEvents: PipelineEvent[];
+  // ── Chat sessions (persisted) ──
+  sessions: ChatSession[];
+  activeSessionId: string | null;
+
+  // ── Active pipeline run state (transient) ──
   isStreaming: boolean;
   nodeStatuses: Record<string, NodeStatus>;
   currentPrompt: string;
-  securityScore: number | null;
-  scoreHistory: number[];
+  currentLanguage: string;
+
+  // Backend health
+  backendHealth: BackendHealth | null;
+  backendOnline: boolean;
 
   // Status bar
   gitBranch: string;
@@ -72,268 +125,441 @@ interface IDEStore {
   errors: number;
   warnings: number;
 
-  // Actions
+  // ── Actions ──
   toggleSidebar: () => void;
-  setActiveView: (view: ActivityView) => void;
+  setActiveView: (v: ActivityView) => void;
   toggleFolder: (id: string) => void;
   openFile: (node: FileNode) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
-  setPanelOpen: (open: boolean) => void;
-  setActivePanelTab: (tab: PanelTab) => void;
+  openGeneratedCodeTab: (code: string, language: string, projectId: string) => void;
+
+  setPanelOpen: (v: boolean) => void;
+  setActivePanelTab: (t: PanelTab) => void;
   setPanelHeight: (h: number) => void;
-  addEvent: (event: Omit<PipelineEvent, "id" | "timestamp">) => void;
+
+  // Session / history
+  createSession: (prompt: string, language: string) => ChatSession;
+  setActiveSession: (id: string) => void;
+  addMessage: (sessionId: string, msg: Omit<ChatMessage, "id" | "timestamp">) => void;
+  updateSession: (sessionId: string, updates: Partial<ChatSession>) => void;
+  loadSessionFromBackend: (project: Project, generations?: Generation[]) => void;
+  deleteSession: (sessionId: string) => void;
+
+  // Pipeline
   setStreaming: (v: boolean) => void;
   setNodeStatus: (node: string, status: NodeStatus) => void;
+  resetNodeStatuses: () => void;
   setCurrentPrompt: (p: string) => void;
-  setSecurityScore: (score: number) => void;
+  setCurrentLanguage: (l: string) => void;
+  applyDoneState: (sessionId: string, state: PipelineState) => void;
+
+  // Status bar
   setCursor: (line: number, col: number) => void;
-  clearEvents: () => void;
+  setLanguage: (l: string) => void;
+
+  // Health
+  setBackendHealth: (h: BackendHealth | null) => void;
+  setBackendOnline: (v: boolean) => void;
 }
 
-// ── Mock File Tree Data ──────────────────────────────────────────────────────
+// ── Mock file tree (CodeSentinel project structure) ───────────────────────────
 const MOCK_FILE_TREE: FileNode[] = [
   {
     id: "backend",
     name: "backend",
     type: "folder",
-    isOpen: true,
     children: [
       {
         id: "graph",
         name: "graph",
         type: "folder",
-        isOpen: false,
         children: [
-          { id: "state.py", name: "state.py", type: "file", language: "python", content: "# LangGraph state definitions\nfrom typing import TypedDict, Annotated\nfrom langgraph.graph import add_messages\n\nclass PipelineState(TypedDict):\n    user_prompt: str\n    language: str\n    current_code: str\n    execution_stdout: str\n    execution_stderr: str\n    execution_success: bool\n    dev_retries: int\n    raw_semgrep_findings: list[dict]\n    security_score: int\n    security_iterations: int\n    final_code: str\n    stage_events: Annotated[list, add_messages]\n    score_history: Annotated[list, add_messages]\n    audit_trail: Annotated[list, add_messages]\n" },
-          { id: "nodes.py", name: "nodes.py", type: "file", language: "python", content: "# Node function implementations\nasync def developer_agent(state: PipelineState):\n    \"\"\"Generates Node.js code from user prompt.\"\"\"\n    pass\n\nasync def e2b_execute(state: PipelineState):\n    \"\"\"Runs code in E2B sandbox.\"\"\"\n    pass\n\nasync def semgrep_scan(state: PipelineState):\n    \"\"\"Scans for security vulnerabilities.\"\"\"\n    pass\n" },
-          { id: "edges.py", name: "edges.py", type: "file", language: "python", content: "# Conditional routing edges\ndef should_retry_dev(state):\n    return state['dev_retries'] < 3\n\ndef triage_verdict(state):\n    return state['triage_output'].verdict\n" },
-          { id: "graph.py", name: "graph.py", type: "file", language: "python", content: "# LangGraph state machine wiring\nfrom langgraph.graph import StateGraph\nfrom .state import PipelineState\nfrom .nodes import *\nfrom .edges import *\n\ndef build_graph():\n    g = StateGraph(PipelineState)\n    g.add_node('developer_agent', developer_agent)\n    g.add_node('e2b_execute', e2b_execute)\n    g.add_node('semgrep_scan', semgrep_scan)\n    # ... conditional edges\n    return g.compile()\n" },
+          { id: "state.py",  name: "state.py",  type: "file", language: "python", content: `from typing import TypedDict, List, Optional
+from typing_extensions import Annotated
+import operator
+from pydantic import BaseModel, Field
+
+class SemgrepFinding(BaseModel):
+    check_id: str
+    message: str
+    severity: str
+    line: int
+    cwe: List[str] = []
+    owasp: List[str] = []
+
+class TriageOutput(BaseModel):
+    verdict: str
+    security_score: int
+    findings_to_fix: List[SemgrepFinding] = []
+    reasoning: str
+
+class PipelineState(TypedDict):
+    project_id: Optional[str]
+    user_prompt: str
+    language: str
+    current_code: str
+    execution_stdout: str
+    execution_stderr: str
+    execution_success: bool
+    dev_retries: int
+    raw_semgrep_findings: List[dict]
+    triage_output: Optional[TriageOutput]
+    security_score: int
+    security_iterations: int
+    final_code: str
+    stage_events: Annotated[List[dict], operator.add]
+    score_history: Annotated[List[int], operator.add]
+    audit_trail: Annotated[List[dict], operator.add]
+` },
+          { id: "nodes.py",  name: "nodes.py",  type: "file", language: "python", content: `# LangGraph node implementations
+# developer_agent → e2b_execute → semgrep_scan
+# → triage_agent → synthesizer_agent → e2b_verify → finalize` },
+          { id: "edges.py",  name: "edges.py",  type: "file", language: "python", content: `def route_after_dev_execute(state):
+    if state["execution_success"] or state["dev_retries"] >= 3:
+        return "semgrep_scan"
+    return "developer_agent"
+
+def route_after_triage(state):
+    triage = state.get("triage_output")
+    if triage and triage.verdict == "clean":
+        return "finalize"
+    return "synthesizer_agent"` },
+          { id: "graph.py",  name: "graph.py",  type: "file", language: "python", content: `from langgraph.graph import StateGraph
+from .state import PipelineState
+
+def build_graph(checkpointer=None):
+    g = StateGraph(PipelineState)
+    # Add nodes and conditional edges
+    return g.compile(checkpointer=checkpointer)` },
         ],
       },
       {
         id: "tools",
         name: "tools",
         type: "folder",
-        isOpen: false,
         children: [
-          { id: "e2b_tool.py", name: "e2b_tool.py", type: "file", language: "python", content: "import e2b\n\nasync def execute_nodejs_in_sandbox(code: str) -> dict:\n    \"\"\"Execute Node.js code in E2B microVM.\"\"\"\n    async with e2b.Sandbox() as sbx:\n        result = await sbx.process.start_and_wait(\n            f'node -e \"{code}\"'\n        )\n        return {\n            'stdout': result.stdout,\n            'stderr': result.stderr,\n            'exit_code': result.exit_code,\n        }\n" },
-          { id: "semgrep_tool.py", name: "semgrep_tool.py", type: "file", language: "python", content: "import subprocess, json, tempfile\n\ndef run_semgrep(code: str) -> list[dict]:\n    \"\"\"Run Semgrep scan on provided code.\"\"\"\n    with tempfile.NamedTemporaryFile(suffix='.js', mode='w') as f:\n        f.write(code)\n        result = subprocess.run(\n            ['semgrep', 'scan', '--config=auto', '--json', f.name],\n            capture_output=True, text=True\n        )\n    return json.loads(result.stdout).get('results', [])\n" },
+          { id: "e2b_tool.py",     name: "e2b_tool.py",     type: "file", language: "python", content: "# E2B sandbox executor\nasync def execute_nodejs_in_sandbox(code: str) -> dict: ..." },
+          { id: "semgrep_tool.py", name: "semgrep_tool.py", type: "file", language: "python", content: "# Semgrep static analysis runner\ndef run_semgrep(code: str) -> list[dict]: ..." },
         ],
       },
-      { id: "main.py", name: "main.py", type: "file", language: "python", content: "from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom fastapi.responses import StreamingResponse\nfrom contextlib import asynccontextmanager\nfrom graph.graph import build_graph\nimport json\n\ngraph = None\n\n@asynccontextmanager\nasync def lifespan(app: FastAPI):\n    global graph\n    graph = build_graph()\n    yield\n\napp = FastAPI(lifespan=lifespan)\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=['*'],\n    allow_methods=['*'],\n    allow_headers=['*'],\n)\n\n@app.get('/health')\nasync def health():\n    return {'status': 'ok', 'graph_ready': graph is not None}\n\n@app.post('/api/generate')\nasync def generate(request: dict):\n    async def event_stream():\n        async for event in graph.astream_events(\n            {'user_prompt': request['prompt'], 'language': request.get('language', 'javascript')},\n            version='v2'\n        ):\n            yield f'data: {json.dumps(event)}\\n\\n'\n    return StreamingResponse(\n        event_stream(),\n        media_type='text/event-stream',\n        headers={'X-Accel-Buffering': 'no'},\n    )\n" },
-      { id: "requirements.txt", name: "requirements.txt", type: "file", language: "plaintext", content: "fastapi\nuvicorn\nlanggraph\nlangchain-google-genai\ne2b\npydantic\npython-dotenv\nhttpx\n" },
-      { id: ".env.example", name: ".env.example", type: "file", language: "plaintext", content: "GOOGLE_API_KEY=\nE2B_API_KEY=\nMAX_DEV_RETRIES=3\nMAX_SEC_ITERATIONS=3\n" },
+      { id: "main.py",          name: "main.py",          type: "file", language: "python", content: "# FastAPI app — POST /api/generate (SSE)\n# GET /api/projects, /api/projects/{id}, /api/projects/{id}/generations" },
+      { id: "database.py",      name: "database.py",      type: "file", language: "python", content: "# SQLite / Postgres dual-layer memory\n# Tables: projects, generations (with embedding vectors)" },
+      { id: "embeddings.py",    name: "embeddings.py",    type: "file", language: "python", content: "# Text-embedding-3-large for semantic cache" },
+      { id: "requirements.txt", name: "requirements.txt", type: "file", language: "plaintext", content: "fastapi\nuvicorn\nlanggraph\nlangchain-google-genai\ne2b\npydantic\npython-dotenv\nhttpx\npsycopg[binary]" },
     ],
   },
   {
     id: "frontend",
     name: "frontend",
     type: "folder",
-    isOpen: true,
     children: [
       {
         id: "src",
         name: "src",
         type: "folder",
-        isOpen: true,
         children: [
-          {
-            id: "app",
-            name: "app",
-            type: "folder",
-            isOpen: false,
-            children: [
-              { id: "page.tsx", name: "page.tsx", type: "file", language: "typescript", content: '// CodeSentinel IDE — Main page\n\nexport default function Home() {\n  return <IDEShell />;\n}\n' },
-              { id: "layout.tsx", name: "layout.tsx", type: "file", language: "typescript", content: 'import type { Metadata } from "next";\n\nexport const metadata: Metadata = {\n  title: "CodeSentinel",\n};\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang="en">\n      <body>{children}</body>\n    </html>\n  );\n}\n' },
-            ],
-          },
-          {
-            id: "components",
-            name: "components",
-            type: "folder",
-            isOpen: false,
-            children: [
-              { id: "ActivityBar.tsx", name: "ActivityBar.tsx", type: "file", language: "typescript", content: "// Activity Bar component" },
-              { id: "Sidebar.tsx", name: "Sidebar.tsx", type: "file", language: "typescript", content: "// Sidebar component" },
-              { id: "Editor.tsx", name: "Editor.tsx", type: "file", language: "typescript", content: "// Editor component" },
-              { id: "CliPanel.tsx", name: "CliPanel.tsx", type: "file", language: "typescript", content: "// CLI Panel component" },
-            ],
-          },
+          { id: "ideStore.ts", name: "ideStore.ts", type: "file", language: "typescript", content: "// Zustand IDE store — sessions, tabs, pipeline state" },
+          { id: "api.ts",      name: "api.ts",      type: "file", language: "typescript", content: "// Typed API client for all backend endpoints" },
         ],
       },
-      { id: "package.json", name: "package.json", type: "file", language: "json", content: '{\n  "name": "codesentinel-frontend",\n  "version": "0.1.0",\n  "private": true,\n  "scripts": {\n    "dev": "next dev",\n    "build": "next build",\n    "start": "next start"\n  }\n}\n' },
+      { id: "package.json", name: "package.json", type: "file", language: "json", content: '{\n  "name": "codesentinel-frontend",\n  "version": "0.2.0"\n}' },
     ],
   },
-  { id: "agent.md", name: "agent.md", type: "file", language: "markdown", content: "# CodeSentinel — Agentic Code Security Pipeline\n\n## Project Idea\n\nCodeSentinel is a multi-agent DevSecOps pipeline..." },
-  { id: ".gitignore", name: ".gitignore", type: "file", language: "plaintext", content: "node_modules/\n.next/\n.env\n__pycache__/\n*.pyc\n" },
+  { id: "agent.md",    name: "agent.md",    type: "file", language: "markdown", content: "# CodeSentinel — Agentic Code Security Pipeline" },
+  { id: ".gitignore",  name: ".gitignore",  type: "file", language: "plaintext", content: "node_modules/\n.next/\n.env\n__pycache__/" },
 ];
 
-// ── Default open tab ─────────────────────────────────────────────────────────
-const DEFAULT_TABS: Tab[] = [
-  {
-    id: "tab-main",
-    fileId: "main.py",
-    fileName: "main.py",
-    language: "python",
-    content: MOCK_FILE_TREE[0].children!.find(f => f.id === "main.py")!.content!,
-    isDirty: false,
-  },
-  {
-    id: "tab-state",
-    fileId: "state.py",
-    fileName: "state.py",
-    language: "python",
-    content: MOCK_FILE_TREE[0].children![0].children![0].content!,
-    isDirty: false,
-  },
-];
-
-// ── Store Implementation ─────────────────────────────────────────────────────
-export const useIDEStore = create<IDEStore>((set, get) => ({
-  // Sidebar
-  sidebarOpen: true,
-  activeView: "explorer",
-  fileTree: MOCK_FILE_TREE,
-  selectedFileId: "main.py",
-  expandedFolders: new Set(["backend", "frontend", "src", "app"]),
-
-  // Tabs
-  tabs: DEFAULT_TABS,
-  activeTabId: "tab-main",
-
-  // Panel
-  panelOpen: true,
-  activePanelTab: "codesentinel",
-  panelHeight: 320,
-
-  // Pipeline
-  pipelineEvents: [
-    {
-      id: "sys-0",
-      type: "system",
-      message: "CodeSentinel ready. Type a requirement below to start the pipeline.",
-      timestamp: new Date(),
-    },
-  ],
-  isStreaming: false,
-  nodeStatuses: {},
-  currentPrompt: "",
-  securityScore: null,
-  scoreHistory: [],
-
-  // Status bar
-  gitBranch: "main",
-  cursorLine: 1,
-  cursorCol: 1,
-  language: "Python",
-  errors: 0,
-  warnings: 2,
-
-  // ── Actions ──
-  toggleSidebar: () => set(s => ({ sidebarOpen: !s.sidebarOpen })),
-  setActiveView: (view) =>
-    set(s => ({
-      activeView: view,
-      sidebarOpen: s.activeView === view ? !s.sidebarOpen : true,
-    })),
-
-  toggleFolder: (id) =>
-    set(s => {
-      const next = new Set(s.expandedFolders);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return { expandedFolders: next };
-    }),
-
-  openFile: (node) => {
-    const { tabs } = get();
-    const existing = tabs.find(t => t.fileId === node.id);
-    if (existing) {
-      set({ activeTabId: existing.id, selectedFileId: node.id });
-      return;
-    }
-    const lang = node.language ?? "plaintext";
-    const newTab: Tab = {
-      id: `tab-${node.id}`,
-      fileId: node.id,
-      fileName: node.name,
-      language: lang,
-      content: node.content ?? "",
-    };
-    set({
-      tabs: [...tabs, newTab],
-      activeTabId: newTab.id,
-      selectedFileId: node.id,
-      language: langLabel(lang),
-    });
-  },
-
-  closeTab: (tabId) => {
-    const { tabs, activeTabId } = get();
-    const idx = tabs.findIndex(t => t.id === tabId);
-    const newTabs = tabs.filter(t => t.id !== tabId);
-    let newActive = activeTabId;
-    if (activeTabId === tabId) {
-      newActive = newTabs[Math.max(0, idx - 1)]?.id ?? null;
-    }
-    set({ tabs: newTabs, activeTabId: newActive });
-  },
-
-  setActiveTab: (tabId) => {
-    const { tabs } = get();
-    const tab = tabs.find(t => t.id === tabId);
-    if (tab) {
-      set({ activeTabId: tabId, selectedFileId: tab.fileId, language: langLabel(tab.language) });
-    }
-  },
-
-  updateTabContent: (tabId, content) =>
-    set(s => ({
-      tabs: s.tabs.map(t => t.id === tabId ? { ...t, content, isDirty: true } : t),
-    })),
-
-  setPanelOpen: (open) => set({ panelOpen: open }),
-  setActivePanelTab: (tab) => set({ activePanelTab: tab }),
-  setPanelHeight: (h) => set({ panelHeight: h }),
-
-  addEvent: (event) =>
-    set(s => ({
-      pipelineEvents: [
-        ...s.pipelineEvents,
-        { ...event, id: `evt-${Date.now()}-${Math.random()}`, timestamp: new Date() },
-      ],
-    })),
-
-  setStreaming: (v) => set({ isStreaming: v }),
-
-  setNodeStatus: (node, status) =>
-    set(s => ({ nodeStatuses: { ...s.nodeStatuses, [node]: status } })),
-
-  setCurrentPrompt: (p) => set({ currentPrompt: p }),
-
-  setSecurityScore: (score) =>
-    set(s => ({
-      securityScore: score,
-      scoreHistory: [...s.scoreHistory, score],
-    })),
-
-  setCursor: (line, col) => set({ cursorLine: line, cursorCol: col }),
-
-  clearEvents: () => set({ pipelineEvents: [], nodeStatuses: {}, securityScore: null, scoreHistory: [] }),
-}));
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helper ────────────────────────────────────────────────────────────────────
 function langLabel(lang: string): string {
-  const map: Record<string, string> = {
-    python: "Python",
-    typescript: "TypeScript",
-    javascript: "JavaScript",
-    json: "JSON",
-    css: "CSS",
-    html: "HTML",
-    markdown: "Markdown",
-    plaintext: "Plain Text",
+  const m: Record<string, string> = {
+    python: "Python", typescript: "TypeScript", javascript: "JavaScript",
+    json: "JSON", css: "CSS", html: "HTML", markdown: "Markdown", plaintext: "Plain Text",
   };
-  return map[lang] ?? lang;
+  return m[lang] ?? lang;
 }
+
+function makeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ── Store ─────────────────────────────────────────────────────────────────────
+export const useIDEStore = create<IDEStore>()(
+  persist(
+    (set, get) => ({
+      // ── Sidebar ──
+      sidebarOpen: true,
+      activeView: "explorer",
+      fileTree: MOCK_FILE_TREE,
+      selectedFileId: null,
+      expandedFolders: new Set(["backend", "graph", "frontend"]),
+
+      // ── Tabs ──
+      tabs: [],
+      activeTabId: null,
+
+      // ── Panel ──
+      panelOpen: true,
+      activePanelTab: "codesentinel",
+      panelHeight: 340,
+
+      // ── Sessions (chat history) ──
+      sessions: [],
+      activeSessionId: null,
+
+      // ── Pipeline transient ──
+      isStreaming: false,
+      nodeStatuses: {},
+      currentPrompt: "",
+      currentLanguage: "javascript",
+
+      // ── Health ──
+      backendHealth: null,
+      backendOnline: false,
+
+      // ── Status bar ──
+      gitBranch: "main",
+      cursorLine: 1,
+      cursorCol: 1,
+      language: "Python",
+      errors: 0,
+      warnings: 0,
+
+      // ── Sidebar actions ──
+      toggleSidebar: () => set(s => ({ sidebarOpen: !s.sidebarOpen })),
+      setActiveView: (view) =>
+        set(s => ({
+          activeView: view,
+          sidebarOpen: s.activeView === view ? !s.sidebarOpen : true,
+        })),
+      toggleFolder: (id) =>
+        set(s => {
+          const next = new Set(s.expandedFolders);
+          next.has(id) ? next.delete(id) : next.add(id);
+          return { expandedFolders: next };
+        }),
+
+      openFile: (node) => {
+        const { tabs } = get();
+        const existing = tabs.find(t => t.fileId === node.id);
+        if (existing) {
+          set({ activeTabId: existing.id, selectedFileId: node.id });
+          return;
+        }
+        const newTab: Tab = {
+          id: `tab-${node.id}`,
+          fileId: node.id,
+          fileName: node.name,
+          language: node.language ?? "plaintext",
+          content: node.content ?? "",
+        };
+        set({
+          tabs: [...tabs, newTab],
+          activeTabId: newTab.id,
+          selectedFileId: node.id,
+          language: langLabel(node.language ?? "plaintext"),
+        });
+      },
+
+      closeTab: (tabId) => {
+        const { tabs, activeTabId } = get();
+        const idx = tabs.findIndex(t => t.id === tabId);
+        const newTabs = tabs.filter(t => t.id !== tabId);
+        let newActive = activeTabId;
+        if (activeTabId === tabId) {
+          newActive = newTabs[Math.max(0, idx - 1)]?.id ?? null;
+        }
+        set({ tabs: newTabs, activeTabId: newActive });
+      },
+
+      setActiveTab: (tabId) => {
+        const { tabs } = get();
+        const tab = tabs.find(t => t.id === tabId);
+        if (tab) set({ activeTabId: tabId, selectedFileId: tab.fileId, language: langLabel(tab.language) });
+      },
+
+      updateTabContent: (tabId, content) =>
+        set(s => ({
+          tabs: s.tabs.map(t => t.id === tabId ? { ...t, content, isDirty: true } : t),
+        })),
+
+      // Opens / updates a "generated code" tab with the result from the pipeline
+      openGeneratedCodeTab: (code, language, projectId) => {
+        const { tabs } = get();
+        const tabId = `tab-gen-${projectId}`;
+        const fileName = `generated.${language === "javascript" ? "js" : language === "python" ? "py" : "ts"}`;
+        const existing = tabs.find(t => t.id === tabId);
+        if (existing) {
+          set({
+            tabs: tabs.map(t => t.id === tabId ? { ...t, content: code, isDirty: false } : t),
+            activeTabId: tabId,
+          });
+        } else {
+          const newTab: Tab = { id: tabId, fileId: tabId, fileName, language, content: code };
+          set({ tabs: [...tabs, newTab], activeTabId: tabId, language: langLabel(language) });
+        }
+      },
+
+      // ── Panel ──
+      setPanelOpen: (v) => set({ panelOpen: v }),
+      setActivePanelTab: (t) => set({ activePanelTab: t }),
+      setPanelHeight: (h) => set({ panelHeight: h }),
+
+      // ── Sessions ──
+      createSession: (prompt, language) => {
+        const id = `project_${makeId()}`;
+        const session: ChatSession = {
+          id,
+          projectName: `Project ${id.slice(-6)}`,
+          prompt,
+          language,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messages: [
+            {
+              id: makeId(),
+              role: "system",
+              content: "CodeSentinel pipeline started.",
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        };
+        set(s => ({ sessions: [session, ...s.sessions], activeSessionId: id }));
+        return session;
+      },
+
+      setActiveSession: (id) => {
+        set({ activeSessionId: id, activePanelTab: "codesentinel" });
+        // If session has final code, open it
+        const { sessions, openGeneratedCodeTab } = get();
+        const session = sessions.find(s => s.id === id);
+        if (session?.finalCode) {
+          openGeneratedCodeTab(session.finalCode, session.language, id);
+        }
+      },
+
+      addMessage: (sessionId, msg) => {
+        const full: ChatMessage = {
+          ...msg,
+          id: makeId(),
+          timestamp: new Date().toISOString(),
+        };
+        set(s => ({
+          sessions: s.sessions.map(sess =>
+            sess.id === sessionId
+              ? { ...sess, messages: [...sess.messages, full], updatedAt: new Date().toISOString() }
+              : sess
+          ),
+        }));
+      },
+
+      updateSession: (sessionId, updates) =>
+        set(s => ({
+          sessions: s.sessions.map(sess =>
+            sess.id === sessionId ? { ...sess, ...updates, updatedAt: new Date().toISOString() } : sess
+          ),
+        })),
+
+      loadSessionFromBackend: (project, generations) => {
+        const { sessions } = get();
+        const exists = sessions.find(s => s.id === project.id);
+        const session: ChatSession = {
+          id: project.id,
+          projectName: project.name,
+          prompt: project.prompt,
+          language: project.language,
+          createdAt: project.created_at,
+          updatedAt: project.updated_at,
+          messages: exists?.messages ?? [
+            {
+              id: makeId(),
+              role: "user",
+              content: project.prompt,
+              timestamp: project.created_at,
+            },
+          ],
+          backendProject: project,
+          generations,
+          finalCode: generations?.[0]?.code,
+          finalScore: generations?.[0]?.security_score,
+          findings: generations?.[0]?.findings,
+        };
+        set(s => ({
+          sessions: exists
+            ? s.sessions.map(sess => sess.id === project.id ? { ...sess, backendProject: project, generations } : sess)
+            : [session, ...s.sessions],
+        }));
+      },
+
+      deleteSession: (sessionId) =>
+        set(s => ({
+          sessions: s.sessions.filter(sess => sess.id !== sessionId),
+          activeSessionId: s.activeSessionId === sessionId ? null : s.activeSessionId,
+        })),
+
+      // ── Pipeline ──
+      setStreaming: (v) => set({ isStreaming: v }),
+      setNodeStatus: (node, status) =>
+        set(s => ({ nodeStatuses: { ...s.nodeStatuses, [node]: status } })),
+      resetNodeStatuses: () => set({ nodeStatuses: {} }),
+      setCurrentPrompt: (p) => set({ currentPrompt: p }),
+      setCurrentLanguage: (l) => set({ currentLanguage: l }),
+
+      // Apply the final `done` state to a session
+      applyDoneState: (sessionId, state) => {
+        const { openGeneratedCodeTab } = get();
+        if (state.final_code) {
+          openGeneratedCodeTab(state.final_code, state.language ?? "javascript", sessionId);
+        }
+        set(s => ({
+          sessions: s.sessions.map(sess =>
+            sess.id === sessionId ? {
+              ...sess,
+              finalCode: state.final_code || state.current_code,
+              finalScore: state.security_score,
+              scoreHistory: state.score_history,
+              triageOutput: state.triage_output ?? undefined,
+              findings: state.raw_semgrep_findings,
+              executionStdout: state.execution_stdout,
+              executionStderr: state.execution_stderr,
+              executionSuccess: state.execution_success,
+              devRetries: state.dev_retries,
+              securityIterations: state.security_iterations,
+              auditTrail: state.audit_trail,
+              updatedAt: new Date().toISOString(),
+            } : sess
+          ),
+          warnings: state.raw_semgrep_findings?.filter(f => f.severity === "WARNING").length ?? 0,
+          errors: state.raw_semgrep_findings?.filter(f => f.severity === "ERROR").length ?? 0,
+        }));
+      },
+
+      // ── Status bar ──
+      setCursor: (line, col) => set({ cursorLine: line, cursorCol: col }),
+      setLanguage: (l) => set({ language: l }),
+
+      // ── Health ──
+      setBackendHealth: (h) => set({ backendHealth: h }),
+      setBackendOnline: (v) => set({ backendOnline: v }),
+    }),
+    {
+      name: "codesentinel-ide",
+      // Only persist sessions (chat history) + ui prefs; exclude transient pipeline state
+      partialize: (s) => ({
+        sessions: s.sessions,
+        activeSessionId: s.activeSessionId,
+        sidebarOpen: s.sidebarOpen,
+        panelHeight: s.panelHeight,
+        gitBranch: s.gitBranch,
+        expandedFolders: Array.from(s.expandedFolders),
+      }),
+      // Rehydrate expandedFolders Set from array
+      onRehydrateStorage: () => (state) => {
+        if (state && Array.isArray((state as { expandedFolders: unknown }).expandedFolders)) {
+          state.expandedFolders = new Set((state as { expandedFolders: string[] }).expandedFolders as string[]);
+        }
+      },
+    }
+  )
+);

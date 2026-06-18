@@ -12,14 +12,21 @@ export default function BackendProvider({ children }: { children: React.ReactNod
   const { setBackendHealth, setBackendOnline } = useIDEStore();
 
   useEffect(() => {
+    let wasOnline = false;
     const check = async () => {
       try {
         const h = await fetchHealth();
         setBackendHealth(h);
-        setBackendOnline(h.status === "ok");
+        const isOk = h.status === "ok";
+        setBackendOnline(isOk);
+        if (isOk && !wasOnline) {
+          wasOnline = true;
+          useIDEStore.getState().syncSessions();
+        }
       } catch {
         setBackendHealth(null);
         setBackendOnline(false);
+        wasOnline = false;
       }
     };
 

@@ -29,6 +29,8 @@ export interface Project {
   language: string;
   created_at: string;
   updated_at: string;
+  project_dir?: string | null;
+  written_at?: string | null;
 }
 
 export interface Generation {
@@ -201,3 +203,65 @@ export function streamGenerate(
 
   return () => controller.abort();
 }
+
+// ── On-Disk Operations ────────────────────────────────────────────────────────
+export interface WrittenFile {
+  name: string;
+  path: string;
+  relative_path: string;
+  size: number;
+}
+
+export interface ProjectFilesResponse {
+  project_dir: string | null;
+  files: WrittenFile[];
+  written: boolean;
+  written_at: string | null;
+}
+
+export interface WriteProjectResponse {
+  project_dir: string;
+  written_files: Array<{ path: string; size: number; type: string }>;
+  file_count: number;
+}
+
+export async function writeProjectToDisk(
+  projectId: string,
+  code: string,
+  outputDir?: string
+): Promise<WriteProjectResponse> {
+  const r = await fetch(`${BASE}/api/projects/${projectId}/write`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, output_dir: outputDir }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Write failed: ${text}`);
+  }
+  return r.json();
+}
+
+export async function fetchProjectFiles(projectId: string): Promise<ProjectFilesResponse> {
+  const r = await fetch(`${BASE}/api/projects/${projectId}/files`);
+  if (!r.ok) throw new Error(`Fetch files failed: ${r.status}`);
+  return r.json();
+}
+
+export async function fetchProjectFileContent(projectId: string, filePath: string): Promise<string> {
+  const r = await fetch(`${BASE}/api/projects/${projectId}/files/${encodeURIComponent(filePath)}`);
+  if (!r.ok) throw new Error(`Fetch file content failed: ${r.status}`);
+  return r.text();
+}
+
+export async function openProjectInFinder(projectId: string): Promise<{ success: boolean; message: string }> {
+  const r = await fetch(`${BASE}/api/projects/${projectId}/open`, {
+    method: "POST",
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Open in Finder failed: ${text}`);
+  }
+  return r.json();
+}
+

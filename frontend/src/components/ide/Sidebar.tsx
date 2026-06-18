@@ -65,15 +65,18 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
 
 // ── Explorer sidebar ──────────────────────────────────────────────────────────
 function ExplorerSidebar() {
-  const { fileTree } = useIDEStore();
+  const { fileTree, sessions, activeSessionId } = useIDEStore();
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const title = activeSession ? activeSession.projectName : "Workspace";
+
   return (
     <>
       <div className="sidebar-header">
-        <span>CODESENTINEL</span>
+        <span>EXPLORER</span>
       </div>
       <div style={{ padding: "5px 12px 3px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
         <ChevronDown size={12} />
-        <span>Project</span>
+        <span>{title}</span>
       </div>
       <div className="file-tree">
         {fileTree.map(node => <TreeNode key={node.id} node={node} depth={0} />)}

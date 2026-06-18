@@ -6,8 +6,10 @@ import {
   Terminal, Radio, Shield, Send, Trash2, ChevronDown,
   Loader2, CheckCircle2, AlertCircle, AlertTriangle,
   Cpu, Code2, Play, Copy, RotateCcw, ChevronRight,
+  ShieldCheck,
 } from "lucide-react";
 import { useRef, useEffect, useState, FormEvent, KeyboardEvent, useCallback } from "react";
+import ReviewModal from "./ReviewModal";
 
 // ── Pipeline node order ───────────────────────────────────────────────────────
 const PIPELINE_NODES = [
@@ -386,11 +388,14 @@ export default function BottomPanel() {
     createSession, addMessage, updateSession, applyDoneState,
     setStreaming, setNodeStatus, resetNodeStatuses,
     backendOnline,
+    openActiveProjectInFinder,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
   const abortRef  = useRef<(() => void) | null>(null);
+
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) ?? null;
 
@@ -572,6 +577,75 @@ export default function BottomPanel() {
               <div ref={logEndRef} />
             </div>
 
+            {/* Project status bar (Write / Open) */}
+            {activeSession && activeSession.finalCode && (
+              <div style={{
+                padding: "8px 14px",
+                borderTop: "1px solid var(--border-subtle)",
+                borderBottom: "1px solid var(--border-subtle)",
+                background: "rgba(30, 41, 59, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexShrink: 0
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                  <ShieldCheck size={13} style={{ color: "var(--accent-green)" }} />
+                  {activeSession.projectDir ? (
+                    <span style={{ color: "var(--text-primary)" }}>
+                      Saved on disk: <code style={{ color: "var(--accent-blue)" }}>{activeSession.projectDir}</code>
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Code generated successfully with safety score <strong style={{ color: "var(--accent-green)" }}>{activeSession.finalScore}%</strong>.
+                    </span>
+                  )}
+                </div>
+
+                {activeSession.projectDir ? (
+                  <button
+                    onClick={() => openActiveProjectInFinder()}
+                    style={{
+                      background: "rgba(122,162,247,0.12)",
+                      border: "1px solid rgba(122,162,247,0.25)",
+                      borderRadius: 4,
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      color: "var(--accent-blue)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      transition: "all 0.15s"
+                    }}
+                  >
+                    Open Folder
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setReviewModalOpen(true)}
+                    style={{
+                      background: "var(--accent-green)",
+                      border: "none",
+                      borderRadius: 4,
+                      padding: "4px 12px",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "#ffffff",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      transition: "all 0.15s"
+                    }}
+                  >
+                    Review & Write
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Prompt bar */}
             <form className="cli-prompt-bar" onSubmit={handleSubmit}>
               <span className="cli-prompt-prefix">$›_</span>
@@ -644,6 +718,16 @@ export default function BottomPanel() {
           </div>
         )}
       </div>
+
+      {activeSession && (
+        <ReviewModal
+          isOpen={reviewModalOpen}
+          onClose={() => setReviewModalOpen(false)}
+          code={activeSession.finalCode || ""}
+          projectId={activeSession.id}
+          language={activeSession.language}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import type {
   Project,
   Generation,
@@ -64,6 +63,8 @@ export interface ChatSession {
   devRetries?: number;
   securityIterations?: number;
   auditTrail?: Array<Record<string, unknown>>;
+  projectDir?: string;
+  writtenAt?: string;
   // From backend Project record (loaded from API)
   backendProject?: Project;
   generations?: Generation[];
@@ -74,7 +75,7 @@ export type NodeStatus = "idle" | "running" | "done" | "error";
 
 // ── Panel / view types ────────────────────────────────────────────────────────
 export type PanelTab     = "codesentinel" | "terminal" | "output" | "findings";
-export type ActivityView = "explorer" | "history" | "git" | "settings";
+export type ActivityView = "explorer" | "history" | "search" | "git" | "settings";
 
 // ── Backend health ────────────────────────────────────────────────────────────
 export interface BackendHealth {
@@ -129,7 +130,7 @@ interface IDEStore {
   toggleSidebar: () => void;
   setActiveView: (v: ActivityView) => void;
   toggleFolder: (id: string) => void;
-  openFile: (node: FileNode) => void;
+  openFile: (node: FileNode) => Promise<void>;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
@@ -146,6 +147,7 @@ interface IDEStore {
   updateSession: (sessionId: string, updates: Partial<ChatSession>) => void;
   loadSessionFromBackend: (project: Project, generations?: Generation[]) => void;
   deleteSession: (sessionId: string) => void;
+  syncSessions: () => Promise<void>;
 
   // Pipeline
   setStreaming: (v: boolean) => void;
@@ -154,6 +156,11 @@ interface IDEStore {
   setCurrentPrompt: (p: string) => void;
   setCurrentLanguage: (l: string) => void;
   applyDoneState: (sessionId: string, state: PipelineState) => void;
+
+  // On-disk file operations
+  loadProjectFiles: (projectId: string) => Promise<void>;
+  writeActiveProject: (code: string) => Promise<void>;
+  openActiveProjectInFinder: () => Promise<void>;
 
   // Status bar
   setCursor: (line: number, col: number) => void;
@@ -284,29 +291,70 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function detectLanguage(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  if (ext === "js") return "javascript";
+  if (ext === "ts") return "typescript";
+  if (ext === "py") return "python";
+  if (ext === "json") return "json";
+  if (ext === "md") return "markdown";
+  if (ext === "css") return "css";
+  if (ext === "html") return "html";
+  return "plaintext";
+}
+
+function buildTreeFromFiles(files: any[], projectId: string): FileNode[] {
+  const root: FileNode[] = [];
+  for (const file of files) {
+    const parts = file.relative_path.split("/");
+    let currentLevel = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      const id = `${projectId}/${parts.slice(0, i + 1).join("/")}`;
+      let existing = currentLevel.find(node => node.name === part);
+      if (!existing) {
+        const type = isLast ? "file" : "folder";
+        const language = isLast ? detectLanguage(part) : undefined;
+        existing = {
+          id,
+          name: part,
+          type,
+          language,
+          content: "",
+          children: type === "folder" ? [] : undefined
+        };
+        currentLevel.push(existing);
+      }
+      if (!isLast && existing.children) {
+        currentLevel = existing.children;
+      }
+    }
+  }
+  return root;
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────────
-export const useIDEStore = create<IDEStore>()(
-  persist(
-    (set, get) => ({
-      // ── Sidebar ──
-      sidebarOpen: true,
-      activeView: "explorer",
-      fileTree: MOCK_FILE_TREE,
-      selectedFileId: null,
-      expandedFolders: new Set(["backend", "graph", "frontend"]),
+export const useIDEStore = create<IDEStore>()((set, get) => ({
+  // ── Sidebar ──
+  sidebarOpen: true,
+  activeView: "explorer",
+  fileTree: MOCK_FILE_TREE,
+  selectedFileId: null,
+  expandedFolders: new Set(["backend", "graph", "frontend"]),
 
-      // ── Tabs ──
-      tabs: [],
-      activeTabId: null,
+  // ── Tabs ──
+  tabs: [],
+  activeTabId: null,
 
-      // ── Panel ──
-      panelOpen: true,
-      activePanelTab: "codesentinel",
-      panelHeight: 340,
+  // ── Panel ──
+  panelOpen: true,
+  activePanelTab: "codesentinel",
+  panelHeight: 340,
 
-      // ── Sessions (chat history) ──
-      sessions: [],
-      activeSessionId: null,
+  // ── Sessions (chat history) ──
+  sessions: [],
+  activeSessionId: null,
 
       // ── Pipeline transient ──
       isStreaming: false,
@@ -340,19 +388,33 @@ export const useIDEStore = create<IDEStore>()(
           return { expandedFolders: next };
         }),
 
-      openFile: (node) => {
-        const { tabs } = get();
+      openFile: async (node) => {
+        const { tabs, activeSessionId } = get();
         const existing = tabs.find(t => t.fileId === node.id);
         if (existing) {
           set({ activeTabId: existing.id, selectedFileId: node.id });
           return;
         }
+
+        let content = node.content ?? "";
+        // If it's a real file (its ID starts with activeSessionId + "/")
+        if (activeSessionId && node.id.startsWith(activeSessionId + "/")) {
+          const relativePath = node.id.substring(activeSessionId.length + 1);
+          try {
+            const { fetchProjectFileContent } = await import("@/lib/api");
+            content = await fetchProjectFileContent(activeSessionId, relativePath);
+          } catch (e) {
+            console.error("Failed to load file content:", e);
+            content = `Error loading file: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        }
+
         const newTab: Tab = {
           id: `tab-${node.id}`,
           fileId: node.id,
           fileName: node.name,
           language: node.language ?? "plaintext",
-          content: node.content ?? "",
+          content: content,
         };
         set({
           tabs: [...tabs, newTab],
@@ -432,11 +494,13 @@ export const useIDEStore = create<IDEStore>()(
       setActiveSession: (id) => {
         set({ activeSessionId: id, activePanelTab: "codesentinel" });
         // If session has final code, open it
-        const { sessions, openGeneratedCodeTab } = get();
+        const { sessions, openGeneratedCodeTab, loadProjectFiles } = get();
         const session = sessions.find(s => s.id === id);
         if (session?.finalCode) {
           openGeneratedCodeTab(session.finalCode, session.language, id);
         }
+        // Load on-disk files structure
+        loadProjectFiles(id);
       },
 
       addMessage: (sessionId, msg) => {
@@ -471,6 +535,8 @@ export const useIDEStore = create<IDEStore>()(
           language: project.language,
           createdAt: project.created_at,
           updatedAt: project.updated_at,
+          projectDir: project.project_dir ?? undefined,
+          writtenAt: project.written_at ?? undefined,
           messages: exists?.messages ?? [
             {
               id: makeId(),
@@ -487,7 +553,13 @@ export const useIDEStore = create<IDEStore>()(
         };
         set(s => ({
           sessions: exists
-            ? s.sessions.map(sess => sess.id === project.id ? { ...sess, backendProject: project, generations } : sess)
+            ? s.sessions.map(sess => sess.id === project.id ? {
+                ...sess,
+                backendProject: project,
+                generations,
+                projectDir: project.project_dir ?? undefined,
+                writtenAt: project.written_at ?? undefined,
+              } : sess)
             : [session, ...s.sessions],
         }));
       },
@@ -542,24 +614,83 @@ export const useIDEStore = create<IDEStore>()(
       // ── Health ──
       setBackendHealth: (h) => set({ backendHealth: h }),
       setBackendOnline: (v) => set({ backendOnline: v }),
-    }),
-    {
-      name: "codesentinel-ide",
-      // Only persist sessions (chat history) + ui prefs; exclude transient pipeline state
-      partialize: (s) => ({
-        sessions: s.sessions,
-        activeSessionId: s.activeSessionId,
-        sidebarOpen: s.sidebarOpen,
-        panelHeight: s.panelHeight,
-        gitBranch: s.gitBranch,
-        expandedFolders: Array.from(s.expandedFolders),
-      }),
-      // Rehydrate expandedFolders Set from array
-      onRehydrateStorage: () => (state) => {
-        if (state && Array.isArray((state as { expandedFolders: unknown }).expandedFolders)) {
-          state.expandedFolders = new Set((state as { expandedFolders: string[] }).expandedFolders as string[]);
+
+      // ── On-Disk Operations ──
+      loadProjectFiles: async (projectId) => {
+        try {
+          const { fetchProjectFiles } = await import("@/lib/api");
+          const resp = await fetchProjectFiles(projectId);
+          if (resp.written && resp.files && resp.files.length > 0) {
+            const tree = buildTreeFromFiles(resp.files, projectId);
+            set({ fileTree: tree });
+            set(s => ({
+              sessions: s.sessions.map(sess =>
+                sess.id === projectId
+                  ? { ...sess, projectDir: resp.project_dir || undefined, writtenAt: resp.written_at || undefined }
+                  : sess
+              )
+            }));
+          } else {
+            set({ fileTree: MOCK_FILE_TREE });
+          }
+        } catch (err) {
+          console.error("Failed to load project files:", err);
+          set({ fileTree: MOCK_FILE_TREE });
         }
       },
-    }
-  )
-);
+
+      writeActiveProject: async (code) => {
+        const { activeSessionId } = get();
+        if (!activeSessionId) return;
+        try {
+          const { writeProjectToDisk } = await import("@/lib/api");
+          const resp = await writeProjectToDisk(activeSessionId, code);
+          // Refresh project files tree
+          const { loadProjectFiles } = get();
+          await loadProjectFiles(activeSessionId);
+          // Show a success message in chat
+          const { addMessage } = get();
+          addMessage(activeSessionId, {
+            role: "system",
+            content: `✅ Successfully wrote project to disk at:\n\`${resp.project_dir}\`\nCreated ${resp.file_count} files.`,
+          });
+        } catch (err) {
+          console.error("Failed to write project:", err);
+          const { addMessage } = get();
+          addMessage(activeSessionId, {
+            role: "system",
+            content: `❌ Failed to write project to disk: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          throw err;
+        }
+      },
+
+      openActiveProjectInFinder: async () => {
+        const { activeSessionId } = get();
+        if (!activeSessionId) return;
+        try {
+          const { openProjectInFinder } = await import("@/lib/api");
+          await openProjectInFinder(activeSessionId);
+        } catch (err) {
+          console.error("Failed to open project in Finder:", err);
+        }
+      },
+
+      syncSessions: async () => {
+        try {
+          const { fetchProjects, fetchGenerations } = await import("@/lib/api");
+          const { loadSessionFromBackend } = get();
+          const projects = await fetchProjects();
+          for (const project of projects) {
+            try {
+              const generations = await fetchGenerations(project.id);
+              loadSessionFromBackend(project, generations);
+            } catch {
+              loadSessionFromBackend(project, []);
+            }
+          }
+        } catch (err) {
+          console.warn("syncSessions: History sync failed:", err);
+        }
+      },
+    }))

@@ -93,6 +93,14 @@ def _init_sqlite():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Migrate: add project_dir and written_at columns if not present
+        existing = {row[1] for row in cur.execute("PRAGMA table_info(projects);").fetchall()}
+        if "project_dir" not in existing:
+            cur.execute("ALTER TABLE projects ADD COLUMN project_dir TEXT;")
+            print("database.py: Migrated projects table — added project_dir column.")
+        if "written_at" not in existing:
+            cur.execute("ALTER TABLE projects ADD COLUMN written_at TIMESTAMP;")
+            print("database.py: Migrated projects table — added written_at column.")
         conn.commit()
     print("database.py: SQLite setup completed successfully.")
 
@@ -376,3 +384,50 @@ def find_similar_generation(target_embedding: List[float], threshold: float = 0.
                 continue
                 
         return best_match
+
+
+def update_project_dir(project_id: str, project_dir: str) -> None:
+    """
+    Stores the on-disk directory path after code has been written to disk.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE projects
+                        SET project_dir = %s, written_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s;
+                        """,
+                        (project_dir, project_id)
+                    )
+                conn.commit()
+            return
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL update failed ({e}), falling back to SQLite")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE projects
+            SET project_dir = ?, written_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?;
+            """,
+            (project_dir, project_id)
+        )
+        conn.commit()
+
+
+def get_project_with_generations(project_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Returns a project record merged with its latest generation data.
+    """
+    project = get_project(project_id)
+    if not project:
+        return None
+    gens = get_project_generations(project_id)
+    project["generations"] = gens
+    project["latest_generation"] = gens[0] if gens else None
+    return project

@@ -1,7 +1,8 @@
 "use client";
 
-import { useIDEStore, Tab } from "@/store/ideStore";
-import { X, ShieldCheck, Zap } from "lucide-react";
+import { useIDEStore, Tab, FileNode } from "@/store/ideStore";
+import { X, ShieldCheck, Zap, Play, Loader2 } from "lucide-react";
+import { runCode } from "@/lib/api";
 import CodeEditor from "./CodeEditor";
 
 // ── Language dot color ────────────────────────────────────────────────────────
@@ -95,7 +96,16 @@ function Breadcrumb({ tab }: { tab: Tab | undefined }) {
 
 // ── Editor Toolbar (right-aligned actions) ────────────────────────────────────
 function EditorToolbar({ tab }: { tab: Tab }) {
-  const { setScanRequest, setPanelOpen, setActivePanelTab, isStreaming } = useIDEStore();
+  const {
+    setScanRequest,
+    setPanelOpen,
+    setActivePanelTab,
+    isStreaming,
+    activeProjectId,
+    fileTree,
+    addEvent,
+    setStreaming,
+  } = useIDEStore();
 
   const hasContent = tab.content.trim().length > 0;
   const isLive     = tab.isLive;
@@ -106,6 +116,72 @@ function EditorToolbar({ tab }: { tab: Tab }) {
     setScanRequest({ code: tab.content, language: tab.language });
     setPanelOpen(true);
     setActivePanelTab("codesentinel");
+  };
+
+  const handleRun = async () => {
+    if (!hasContent || isStreaming || isLive) return;
+
+    setPanelOpen(true);
+    setActivePanelTab("codesentinel");
+    setStreaming(true);
+
+    addEvent({ type: "user", message: `run ${tab.fileName}` });
+    addEvent({ type: "system", message: "Connecting to E2B Sandbox for execution…" });
+
+    // Gather project file tree contents
+    const projectNode = fileTree.find(n => n.id === activeProjectId);
+    const filesMap: Record<string, string> = {};
+    const extractFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${activeProjectId}/`, "");
+        if (
+          relativePath !== "security_report.md" &&
+          !relativePath.startsWith(".sentinel/")
+        ) {
+          filesMap[relativePath] = node.content ?? "";
+        }
+      } else if (node.children) {
+        node.children.forEach(extractFiles);
+      }
+    };
+    if (projectNode) {
+      extractFiles(projectNode);
+    }
+
+    // Include unsaved changes in current active tab file
+    const currentRelativePath = tab.fileId.replace(`${activeProjectId}/`, "");
+    filesMap[currentRelativePath] = tab.content;
+
+    const codeContent = Object.keys(filesMap).length > 0
+      ? JSON.stringify({ files: filesMap })
+      : tab.content;
+
+    try {
+      const res = await runCode(codeContent, tab.language);
+      let msg = `Execution completed. Success: ${res.success}`;
+      if (res.stdout.trim()) {
+        msg += `\nStdout:\n\`\`\`\n${res.stdout.trim()}\n\`\`\``;
+      }
+      if (res.stderr.trim()) {
+        msg += `\nStderr:\n\`\`\`\n${res.stderr.trim()}\n\`\`\``;
+      }
+      if (!res.stdout.trim() && !res.stderr.trim()) {
+        msg += " No output recorded.";
+      }
+      addEvent({
+        type: "node_end",
+        node: "e2b_execute",
+        message: msg,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      addEvent({
+        type: "error",
+        message: `Execution failed: ${message}`
+      });
+    } finally {
+      setStreaming(false);
+    }
   };
 
   if (!hasContent || isLive) return <div style={{ height: 30 }} />;
@@ -121,6 +197,33 @@ function EditorToolbar({ tab }: { tab: Tab }) {
       flexShrink:     0,
       background:     "var(--bg-base)",
     }}>
+      <button
+        id="run-code-btn"
+        onClick={handleRun}
+        disabled={isStreaming}
+        title="Run code inside the E2B Sandbox"
+        style={{
+          display:      "flex",
+          alignItems:   "center",
+          gap:          5,
+          fontSize:     11,
+          padding:      "3px 10px",
+          borderRadius: 5,
+          border:       "1px solid rgba(158,206,106,0.3)",
+          background:   isStreaming ? "none" : "rgba(158,206,106,0.08)",
+          color:        isStreaming ? "var(--text-disabled)" : "var(--accent-green)",
+          cursor:       isStreaming ? "not-allowed" : "pointer",
+          transition:   "all 0.15s ease",
+          fontFamily:   "var(--font-ui)",
+        }}
+      >
+        {isStreaming
+          ? <Loader2 size={11} className="animate-spin" />
+          : <Play size={11} />
+        }
+        Run Code
+      </button>
+
       <button
         id="analyze-code-btn"
         onClick={handleAnalyze}

@@ -397,6 +397,26 @@ async def save_project_code(project_id: str, request: SaveCodeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class RunRequest(BaseModel):
+    code: str
+    language: str
+
+@app.post("/api/run")
+async def run_code(request: RunRequest):
+    """
+    Executes code inside an E2B Sandbox on demand.
+    """
+    from tools.e2b_tool import execute_in_sandbox
+    try:
+        res = execute_in_sandbox(request.code, request.language)
+        return res
+    except Exception as e:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"Error running code: {str(e)}"
+        }
+
 
 if __name__ == "__main__":
     import uvicorn

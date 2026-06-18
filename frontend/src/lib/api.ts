@@ -165,3 +165,20 @@ export async function checkHealth(): Promise<{
   if (!resp.ok) throw new Error(`checkHealth: HTTP ${resp.status}`);
   return resp.json();
 }
+
+export async function runCode(code: string, language: string): Promise<{
+  success: boolean;
+  stdout: string;
+  stderr: string;
+}> {
+  const resp = await fetch(`${API_BASE}/api/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, language }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`runCode: HTTP ${resp.status} - ${text}`);
+  }
+  return resp.json();
+}

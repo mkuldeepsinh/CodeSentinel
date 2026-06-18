@@ -1,7 +1,7 @@
 "use client";
 
 import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams, FileNode } from "@/store/ideStore";
-import { streamGenerate } from "@/lib/api";
+import { streamGenerate, runCode } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
 import {
@@ -450,13 +450,22 @@ export default function BottomPanel() {
           const success = output.execution_success as boolean;
           const stdout  = (output.execution_stdout as string) ?? "";
           const stderr  = (output.execution_stderr as string) ?? "";
-          const preview = success
-            ? (stdout.slice(0, 100) || "No stdout output")
-            : (stderr.slice(0, 100) || "Unknown error");
+          
+          let msg = `${NODE_LABELS[node]} ${success ? "✓ passed" : "✗ failed"}.`;
+          if (stdout.trim()) {
+            msg += `\nStdout:\n\`\`\`\n${stdout.trim()}\n\`\`\``;
+          }
+          if (stderr.trim()) {
+            msg += `\nStderr:\n\`\`\`\n${stderr.trim()}\n\`\`\``;
+          }
+          if (!stdout.trim() && !stderr.trim()) {
+            msg += " No output recorded.";
+          }
+
           addEvent({
             type: "node_end",
             node,
-            message: `${NODE_LABELS[node]} ${success ? "✓ passed" : "✗ failed"}. ${preview}`,
+            message: msg,
           });
 
         } else if (node === "semgrep_scan") {
@@ -637,6 +646,71 @@ export default function BottomPanel() {
     e?.preventDefault();
     const prompt = currentPrompt.trim();
     if (!prompt || isStreaming) return;
+
+    // Check if prompt is a sandbox run command
+    const isRunCmd = /^(run(\s+.*)?|\.\/.*|python[3]?\s+.*|node\s+.*|go\s+run\s+.*)$/i.test(prompt);
+
+    if (isRunCmd) {
+      setCurrentPrompt("");
+      setActivePanelTab("codesentinel");
+      setStreaming(true);
+
+      addEvent({ type: "user", message: prompt });
+      addEvent({ type: "system", message: "Connecting to E2B Sandbox for execution…" });
+
+      // Gather current file tree contents
+      const projectNode = fileTree.find(n => n.id === activeProjectId);
+      const filesMap: Record<string, string> = {};
+      const extractFiles = (node: FileNode) => {
+        if (node.type === "file") {
+          const relativePath = node.id.replace(`${activeProjectId}/`, "");
+          if (
+            relativePath !== "security_report.md" &&
+            !relativePath.startsWith(".sentinel/")
+          ) {
+            filesMap[relativePath] = node.content ?? "";
+          }
+        } else if (node.children) {
+          node.children.forEach(extractFiles);
+        }
+      };
+      if (projectNode) {
+        extractFiles(projectNode);
+      }
+
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      const codeContent = Object.keys(filesMap).length > 0
+        ? JSON.stringify({ files: filesMap })
+        : activeTab?.content ?? "";
+
+      try {
+        const res = await runCode(codeContent, currentLanguage);
+        let msg = `Execution completed. Success: ${res.success}`;
+        if (res.stdout.trim()) {
+          msg += `\nStdout:\n\`\`\`\n${res.stdout.trim()}\n\`\`\``;
+        }
+        if (res.stderr.trim()) {
+          msg += `\nStderr:\n\`\`\`\n${res.stderr.trim()}\n\`\`\``;
+        }
+        if (!res.stdout.trim() && !res.stderr.trim()) {
+          msg += " No output recorded.";
+        }
+        addEvent({
+          type: "node_end",
+          node: "e2b_execute",
+          message: msg,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        addEvent({
+          type: "error",
+          message: `Execution failed: ${message}`
+        });
+      } finally {
+        setStreaming(false);
+      }
+      return;
+    }
 
     // Check if there is a selected file with content
     const activeTab = tabs.find(t => t.id === activeTabId);

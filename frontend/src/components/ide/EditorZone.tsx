@@ -1,7 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useIDEStore, Tab, FileNode } from "@/store/ideStore";
-import { X, ShieldCheck, Zap, Play, Loader2 } from "lucide-react";
+import { X, ShieldCheck, Zap, Play, Loader2, Eye, Code } from "lucide-react";
 import { runCode } from "@/lib/api";
 import CodeEditor from "./CodeEditor";
 
@@ -95,7 +96,15 @@ function Breadcrumb({ tab }: { tab: Tab | undefined }) {
 }
 
 // ── Editor Toolbar (right-aligned actions) ────────────────────────────────────
-function EditorToolbar({ tab }: { tab: Tab }) {
+function EditorToolbar({
+  tab,
+  viewMode,
+  setViewMode,
+}: {
+  tab: Tab;
+  viewMode: "code" | "preview";
+  setViewMode: (val: "code" | "preview") => void;
+}) {
   const {
     setScanRequest,
     setPanelOpen,
@@ -190,66 +199,121 @@ function EditorToolbar({ tab }: { tab: Tab }) {
     <div style={{
       display:        "flex",
       alignItems:     "center",
-      justifyContent: "flex-end",
+      justifyContent: "space-between",
       gap:            6,
       padding:        "3px 10px",
       borderBottom:   "1px solid var(--border-subtle)",
       flexShrink:     0,
       background:     "var(--bg-base)",
     }}>
-      <button
-        id="run-code-btn"
-        onClick={handleRun}
-        disabled={isStreaming}
-        title="Run code inside the E2B Sandbox"
-        style={{
-          display:      "flex",
-          alignItems:   "center",
-          gap:          5,
-          fontSize:     11,
-          padding:      "3px 10px",
-          borderRadius: 5,
-          border:       "1px solid rgba(158,206,106,0.3)",
-          background:   isStreaming ? "none" : "rgba(158,206,106,0.08)",
-          color:        isStreaming ? "var(--text-disabled)" : "var(--accent-green)",
-          cursor:       isStreaming ? "not-allowed" : "pointer",
-          transition:   "all 0.15s ease",
-          fontFamily:   "var(--font-ui)",
-        }}
-      >
-        {isStreaming
-          ? <Loader2 size={11} className="animate-spin" />
-          : <Play size={11} />
-        }
-        Run Code
-      </button>
+      {tab.language.toLowerCase() === "html" ? (
+        <div style={{
+          display: "flex",
+          border: "1px solid var(--border-default)",
+          borderRadius: 4,
+          overflow: "hidden",
+          background: "var(--bg-subtle)",
+        }}>
+          <button
+            id="view-code-toggle"
+            onClick={() => setViewMode("code")}
+            style={{
+              padding: "3px 10px",
+              fontSize: 11,
+              background: viewMode === "code" ? "var(--border-default)" : "transparent",
+              color: viewMode === "code" ? "var(--text-bright)" : "var(--text-muted)",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontFamily: "var(--font-ui)",
+              fontWeight: viewMode === "code" ? "bold" : "normal",
+            }}
+          >
+            <Code size={11} />
+            Code
+          </button>
+          <button
+            id="view-preview-toggle"
+            onClick={() => setViewMode("preview")}
+            style={{
+              padding: "3px 10px",
+              fontSize: 11,
+              background: viewMode === "preview" ? "var(--border-default)" : "transparent",
+              color: viewMode === "preview" ? "var(--text-bright)" : "var(--text-muted)",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontFamily: "var(--font-ui)",
+              fontWeight: viewMode === "preview" ? "bold" : "normal",
+            }}
+          >
+            <Eye size={11} />
+            Preview
+          </button>
+        </div>
+      ) : (
+        <div />
+      )}
 
-      <button
-        id="analyze-code-btn"
-        onClick={handleAnalyze}
-        disabled={isStreaming}
-        title="Scan & secure this code through the CodeSentinel pipeline"
-        style={{
-          display:      "flex",
-          alignItems:   "center",
-          gap:          5,
-          fontSize:     11,
-          padding:      "3px 10px",
-          borderRadius: 5,
-          border:       "1px solid rgba(122,162,247,0.3)",
-          background:   isStreaming ? "none" : "rgba(122,162,247,0.08)",
-          color:        isStreaming ? "var(--text-disabled)" : "var(--accent-blue)",
-          cursor:       isStreaming ? "not-allowed" : "pointer",
-          transition:   "all 0.15s ease",
-          fontFamily:   "var(--font-ui)",
-        }}
-      >
-        {isStreaming
-          ? <Zap size={11} />
-          : <ShieldCheck size={11} />
-        }
-        {isStreaming ? "Pipeline running…" : "Scan & Secure"}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button
+          id="run-code-btn"
+          onClick={handleRun}
+          disabled={isStreaming}
+          title="Run code inside the E2B Sandbox"
+          style={{
+            display:      "flex",
+            alignItems:   "center",
+            gap:          5,
+            fontSize:     11,
+            padding:      "3px 10px",
+            borderRadius: 5,
+            border:       "1px solid rgba(158,206,106,0.3)",
+            background:   isStreaming ? "none" : "rgba(158,206,106,0.08)",
+            color:        isStreaming ? "var(--text-disabled)" : "var(--accent-green)",
+            cursor:       isStreaming ? "not-allowed" : "pointer",
+            transition:   "all 0.15s ease",
+            fontFamily:   "var(--font-ui)",
+          }}
+        >
+          {isStreaming
+            ? <Loader2 size={11} className="animate-spin" />
+            : <Play size={11} />
+          }
+          Run Code
+        </button>
+
+        <button
+          id="analyze-code-btn"
+          onClick={handleAnalyze}
+          disabled={isStreaming}
+          title="Scan & secure this code through the CodeSentinel pipeline"
+          style={{
+            display:      "flex",
+            alignItems:   "center",
+            gap:          5,
+            fontSize:     11,
+            padding:      "3px 10px",
+            borderRadius: 5,
+            border:       "1px solid rgba(122,162,247,0.3)",
+            background:   isStreaming ? "none" : "rgba(122,162,247,0.08)",
+            color:        isStreaming ? "var(--text-disabled)" : "var(--accent-blue)",
+            cursor:       isStreaming ? "not-allowed" : "pointer",
+            transition:   "all 0.15s ease",
+            fontFamily:   "var(--font-ui)",
+          }}
+        >
+          {isStreaming
+            ? <Zap size={11} />
+            : <ShieldCheck size={11} />
+          }
+          {isStreaming ? "Pipeline running…" : "Scan & Secure"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -311,6 +375,11 @@ function EmptyEditor() {
 export default function EditorZone() {
   const { tabs, activeTabId } = useIDEStore();
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const [viewMode, setViewMode] = useState<"code" | "preview">("code");
+
+  useEffect(() => {
+    setViewMode("code");
+  }, [activeTabId]);
 
   return (
     <div className="ide-editor-zone">
@@ -325,12 +394,34 @@ export default function EditorZone() {
       <Breadcrumb tab={activeTab} />
 
       {/* Analyze toolbar — only when a file is open */}
-      {activeTab && <EditorToolbar tab={activeTab} />}
+      {activeTab && (
+        <EditorToolbar
+          tab={activeTab}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+        />
+      )}
 
       {/* Editor body */}
       <div className="editor-body">
         {activeTab ? (
-          <CodeEditor tab={activeTab} />
+          viewMode === "preview" ? (
+            <div style={{ width: "100%", height: "100%", background: "#ffffff" }}>
+              <iframe
+                srcDoc={activeTab.content}
+                title="HTML Preview"
+                sandbox="allow-scripts"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  background: "#ffffff",
+                }}
+              />
+            </div>
+          ) : (
+            <CodeEditor tab={activeTab} />
+          )
         ) : (
           <EmptyEditor />
         )}

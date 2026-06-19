@@ -7,7 +7,7 @@
    ═══════════════════════════════════════════════════════════════ */
 :root {
   /* ── Base surfaces ── */
-  --bg-base:        #1f1f1f;  /* deepest background / editor background */
+  --bg-base:        #000000;  /* deepest background / editor background */
   --bg-surface:     #181818;  /* main panels, sidebar background */
   --bg-elevated:    #181818;  /* elevated cards, sidebar */
   --bg-overlay:     #2a2a2a;  /* hover states, subtle elements */
@@ -188,7 +188,7 @@ main {
 /* ── Bottom Panel ── */
 .ide-panel {
   grid-area: panel;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-base);
   border-top: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;

@@ -101,6 +101,27 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
     }
   };
 
+  const handleGoogleClick = () => {
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (googleClientId && googleClientId !== "your_google_client_id" && googleClientId.trim() !== "") {
+      const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback/google`);
+      const nonce = Math.random().toString(36).substring(2);
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId}&redirect_uri=${redirectUri}&response_type=id_token&scope=openid%20email%20profile&nonce=${nonce}`;
+    } else {
+      setActiveView("google_sso");
+    }
+  };
+
+  const handleGitHubClick = () => {
+    const githubClientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+    if (githubClientId && githubClientId !== "your_github_client_id" && githubClientId.trim() !== "") {
+      const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback/github`);
+      window.location.href = `https://github.com/login/oauth/authorize?client_id=${githubClientId}&redirect_uri=${redirectUri}&scope=user:email`;
+    } else {
+      setActiveView("github_sso");
+    }
+  };
+
   return (
     <div className="auth-overlay" onClick={handleClose}>
       <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
@@ -197,7 +218,7 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
               <button
                 type="button"
                 className="auth-sso-btn"
-                onClick={() => setActiveView("google_sso")}
+                onClick={handleGoogleClick}
                 disabled={isLoading}
               >
                 <svg className="auth-sso-icon" viewBox="0 0 24 24" width="24" height="24">
@@ -225,7 +246,7 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
               <button
                 type="button"
                 className="auth-sso-btn"
-                onClick={() => setActiveView("github_sso")}
+                onClick={handleGitHubClick}
                 disabled={isLoading}
               >
                 <svg className="auth-sso-icon" fill="currentColor" viewBox="0 0 24 24" width="24" height="24">
@@ -264,6 +285,21 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
             </svg>
             <div className="sso-popup-title">Choose an account</div>
             <div className="sso-popup-subtitle">to continue to CodeSentinel</div>
+
+            <div style={{
+              background: "rgba(205, 162, 80, 0.08)",
+              border: "1px solid rgba(205, 162, 80, 0.2)",
+              borderRadius: 6,
+              padding: "8px 12px",
+              marginBottom: 16,
+              fontSize: "0.82rem",
+              color: "var(--accent-yellow)",
+              textAlign: "left",
+              lineHeight: 1.4
+            }}>
+              <strong>⚠️ SSO Demo Mode</strong><br />
+              GOOGLE_CLIENT_ID is not configured in .env. Using mock account list.
+            </div>
 
             {!customSsoEmail ? (
               <div className="sso-account-list">
@@ -338,6 +374,22 @@ export default function AuthModal({ onSuccess }: AuthModalProps) {
             </svg>
             <div className="sso-popup-title">Authorize CodeSentinel</div>
             <div className="sso-popup-subtitle">to connect using your GitHub account</div>
+
+            <div style={{
+              background: "rgba(205, 162, 80, 0.08)",
+              border: "1px solid rgba(205, 162, 80, 0.2)",
+              borderRadius: 6,
+              padding: "8px 12px",
+              marginBottom: 16,
+              fontSize: "0.82rem",
+              color: "var(--accent-yellow)",
+              textAlign: "left",
+              lineHeight: 1.4,
+              width: "100%"
+            }}>
+              <strong>⚠️ SSO Demo Mode</strong><br />
+              GITHUB_CLIENT_ID is not configured in .env. Using mock authentication details.
+            </div>
 
             <div className="sso-github-auth-card">
               <div className="sso-github-logos">

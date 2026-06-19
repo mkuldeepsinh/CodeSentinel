@@ -17,6 +17,8 @@ interface AuthStore {
   signup: (email: string, password: string) => Promise<boolean>;
   login: (email: string, password: string) => Promise<boolean>;
   ssoLogin: (email: string, provider: "google" | "github") => Promise<boolean>;
+  verifyGoogleToken: (idToken: string) => Promise<boolean>;
+  verifyGitHubCode: (code: string) => Promise<boolean>;
   logout: () => void;
   checkSession: () => void;
   setError: (err: string | null) => void;
@@ -107,6 +109,52 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const data = await resp.json();
       if (!resp.ok) {
         set({ error: data.detail || "SSO Login failed.", isLoading: false });
+        return false;
+      }
+      localStorage.setItem("codesentinel_token", data.token);
+      localStorage.setItem("codesentinel_user", JSON.stringify(data.user));
+      set({ token: data.token, user: data.user, isLoading: false });
+      return true;
+    } catch (err: any) {
+      set({ error: err.message || "Network error. Please try again.", isLoading: false });
+      return false;
+    }
+  },
+
+  verifyGoogleToken: async (idToken) => {
+    set({ isLoading: true, error: null });
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/google/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        set({ error: data.detail || "Google verification failed.", isLoading: false });
+        return false;
+      }
+      localStorage.setItem("codesentinel_token", data.token);
+      localStorage.setItem("codesentinel_user", JSON.stringify(data.user));
+      set({ token: data.token, user: data.user, isLoading: false });
+      return true;
+    } catch (err: any) {
+      set({ error: err.message || "Network error. Please try again.", isLoading: false });
+      return false;
+    }
+  },
+
+  verifyGitHubCode: async (code) => {
+    set({ isLoading: true, error: null });
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/github/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        set({ error: data.detail || "GitHub authorization failed.", isLoading: false });
         return false;
       }
       localStorage.setItem("codesentinel_token", data.token);

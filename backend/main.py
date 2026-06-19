@@ -59,6 +59,12 @@ class SSORequest(BaseModel):
     provider: str
     name: Optional[str] = ""
 
+class GoogleVerifyRequest(BaseModel):
+    id_token: str
+
+class GitHubVerifyRequest(BaseModel):
+    code: str
+
 # Setup request model
 class GenerateRequest(BaseModel):
     project_id: Optional[str] = None
@@ -208,6 +214,142 @@ async def auth_sso(request: SSORequest):
         raise HTTPException(
             status_code=400,
             detail=f"This email is already registered via {user['provider'].capitalize()}. Please use that option."
+        )
+        
+    token = create_access_token({"sub": user["id"], "email": user["email"]})
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "provider": user["provider"]
+        }
+    }
+
+@app.post("/api/auth/google/verify")
+async def verify_google_token(request: GoogleVerifyRequest):
+    import httpx
+    import uuid
+    from database import get_user_by_email, create_user
+    from auth import create_access_token
+    
+    google_client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not google_client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="Google Client ID is not configured on the server. Please set GOOGLE_CLIENT_ID in the environment."
+        )
+        
+    async with httpx.AsyncClient() as client:
+        # Call Google TokenInfo endpoint to verify the ID token
+        resp = await client.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.id_token}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid Google authentication token.")
+        payload = resp.json()
+        
+    # Verify the target audience matches our Client ID
+    aud = payload.get("aud")
+    if aud != google_client_id:
+        raise HTTPException(status_code=401, detail="Google authentication token audience mismatch.")
+        
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Google identity profile does not expose a verified email address.")
+        
+    user = get_user_by_email(email)
+    if not user:
+        user_id = f"user_{str(uuid.uuid4())[:8]}"
+        user = create_user(user_id=user_id, email=email, hashed_password=None, provider="google")
+    elif user["provider"] != "google":
+        raise HTTPException(
+            status_code=400,
+            detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
+        )
+        
+    token = create_access_token({"sub": user["id"], "email": user["email"]})
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "provider": user["provider"]
+        }
+    }
+
+@app.post("/api/auth/github/verify")
+async def verify_github_code(request: GitHubVerifyRequest):
+    import httpx
+    import uuid
+    from database import get_user_by_email, create_user
+    from auth import create_access_token
+    
+    client_id = os.environ.get("GITHUB_CLIENT_ID")
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET")
+    
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub Client ID or Client Secret is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
+        )
+        
+    async with httpx.AsyncClient() as client:
+        # 1. Exchange OAuth code for Access Token
+        token_resp = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": request.code,
+            }
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to complete token exchange with GitHub.")
+            
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            error_desc = token_data.get("error_description", "Invalid authorization code.")
+            raise HTTPException(status_code=400, detail=error_desc)
+            
+        # 2. Retrieve user identity profile
+        user_resp = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
+        )
+        if user_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch user profile from GitHub.")
+        user_profile = user_resp.json()
+        
+        # 3. Retrieve user email listings (to search primary verified email)
+        emails_resp = await client.get(
+            "https://api.github.com/user/emails",
+            headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
+        )
+        email = None
+        if emails_resp.status_code == 200:
+            emails = emails_resp.json()
+            for email_info in emails:
+                if email_info.get("primary") and email_info.get("verified"):
+                    email = email_info.get("email")
+                    break
+            if not email and emails:
+                email = emails[0].get("email")
+                
+        if not email:
+            email = user_profile.get("email")
+        if not email:
+            username = user_profile.get("login", "github_user")
+            email = f"{username}@users.noreply.github.com"
+            
+    user = get_user_by_email(email)
+    if not user:
+        user_id = f"user_{str(uuid.uuid4())[:8]}"
+        user = create_user(user_id=user_id, email=email, hashed_password=None, provider="github")
+    elif user["provider"] != "github":
+        raise HTTPException(
+            status_code=400,
+            detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
         )
         
     token = create_access_token({"sub": user["id"], "email": user["email"]})

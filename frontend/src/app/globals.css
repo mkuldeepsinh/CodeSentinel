@@ -7,17 +7,17 @@
    ═══════════════════════════════════════════════════════════════ */
 :root {
   /* ── Base surfaces ── */
-  --bg-base:        #0d0e14;  /* deepest background */
-  --bg-surface:     #13141d;  /* main panels */
-  --bg-elevated:    #1a1b26;  /* elevated cards, sidebar */
-  --bg-overlay:     #1f2335;  /* hover states, subtle elements */
-  --bg-highlight:   #292e42;  /* active selections */
-  --bg-selection:   #364a82;  /* text selection */
+  --bg-base:        #1f1f1f;  /* deepest background / editor background */
+  --bg-surface:     #181818;  /* main panels, sidebar background */
+  --bg-elevated:    #181818;  /* elevated cards, sidebar */
+  --bg-overlay:     #2a2a2a;  /* hover states, subtle elements */
+  --bg-highlight:   #2d2d2d;  /* active selections */
+  --bg-selection:   #264f78;  /* text selection */
 
   /* ── Borders ── */
-  --border-subtle:  rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-strong:  rgba(255, 255, 255, 0.18);
+  --border-subtle:  #2b2b2b;
+  --border-default: #2d2d2d;
+  --border-strong:  #3c3c3c;
 
   /* ── Tokyo Night accent palette ── */
   --accent-blue:    #7aa2f7;
@@ -34,7 +34,7 @@
   --text-primary:   #c0caf5;
   --text-secondary: #9aa5ce;
   --text-muted:     #565f89;
-  --text-disabled:  #3b4261;
+  --text-disabled:  #444b6a;
   --text-bright:    #ffffff;
 
   /* ── Semantic colors ── */
@@ -199,7 +199,7 @@ main {
 /* ── Status Bar ── */
 .ide-statusbar {
   grid-area: statusbar;
-  background-color: #1c1e2a;
+  background-color: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;

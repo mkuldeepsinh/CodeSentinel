@@ -420,6 +420,7 @@
   letter-spacing: -0.04em;
   color: var(--text-primary);
   margin-bottom: 1.5rem;
+  min-height: 3.15em; /* Holds a fixed height for 3 lines of text to eliminate scroll jitter/layout shifting */
 }
 
 .hp-hero-title-accent {

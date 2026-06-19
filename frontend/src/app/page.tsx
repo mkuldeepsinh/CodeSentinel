@@ -265,6 +265,61 @@ function useFadeOnScroll() {
   }, []);
 }
 
+/* ── Loop typing effect for entire hero title ───────────────── */
+function TitleTypistEffect() {
+  const fullText = "Code that writes,\nexecutes & secures\nitself.";
+  const [displayedText, setDisplayedText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [speed, setSpeed] = useState(60);
+
+  useEffect(() => {
+    const handleTyping = () => {
+      if (!isDeleting) {
+        const nextText = fullText.slice(0, displayedText.length + 1);
+        setDisplayedText(nextText);
+        setSpeed(60);
+
+        if (nextText === fullText) {
+          setSpeed(3000); // 3 seconds pause at full text
+          setIsDeleting(true);
+        }
+      } else {
+        const nextText = fullText.slice(0, displayedText.length - 1);
+        setDisplayedText(nextText);
+        setSpeed(25); // fast backspacing
+
+        if (nextText === "") {
+          setSpeed(600); // 0.6 seconds pause before retyping
+          setIsDeleting(false);
+        }
+      }
+    };
+
+    const timeout = setTimeout(handleTyping, speed);
+    return () => clearTimeout(timeout);
+  }, [displayedText, isDeleting, speed]);
+
+  return (
+    <>
+      {displayedText.split("\n").map((line, i, arr) => {
+        if (i === 2) {
+          return (
+            <span key={i} className="hp-hero-title-accent">
+              {line}
+            </span>
+          );
+        }
+        return (
+          <span key={i}>
+            {line}
+            {i < arr.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 /* ── Typing cursor for hero title ────────────────────────── */
 function TypingCursor() {
   return (
@@ -571,14 +626,8 @@ export default function Home() {
               </div>
 
               <h1 className="hp-hero-title">
-                Code that writes,
-                <br />
-                executes &amp; secures
-                <br />
-                <span className="hp-hero-title-accent">
-                  itself.
-                  <TypingCursor />
-                </span>
+                <TitleTypistEffect />
+                <TypingCursor />
               </h1>
 
               <p className="hp-hero-desc">

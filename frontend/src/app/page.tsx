@@ -282,6 +282,156 @@ function TypingCursor() {
   );
 }
 
+/* ── Screenshots Gallery Component ────────────────────────── */
+const SCREENSHOTS = [
+  {
+    id: "welcome",
+    tab: "1. Welcome",
+    src: "/Screenshot 2026-06-19 at 17.59.27.png",
+    title: "CodeSentinel Workspace",
+    sub: "Interactive coding and security assistant welcome screen",
+    tag: "IDE welcome",
+    tagClass: "hp-tag-ide",
+  },
+  {
+    id: "prompt",
+    tab: "2. Prompting",
+    src: "/Screenshot 2026-06-19 at 21.30.59.png",
+    title: "Prompt Mode and Secure Execution",
+    sub: "Describe requirements in natural language and generate secure code",
+    tag: "Prompt",
+    tagClass: "hp-tag-code",
+  },
+  {
+    id: "pipeline",
+    tab: "3. Pipeline Loop",
+    src: "/Screenshot 2026-06-19 at 21.38.49.png",
+    title: "LangGraph Security Triaging",
+    sub: "Evaluating code security scoring and triaging issues",
+    tag: "Live Loop",
+    tagClass: "hp-tag-live",
+  },
+  {
+    id: "logs",
+    tab: "4. Execution Logs",
+    src: "/Screenshot 2026-06-19 at 21.39.12.png",
+    title: "E2B MicroVM Execution Logs",
+    sub: "Real-time pipeline logs surfacing compilation or execution errors",
+    tag: "Logs",
+    tagClass: "hp-tag-scan",
+  },
+  {
+    id: "patching",
+    tab: "5. Auto-Patching",
+    src: "/Screenshot 2026-06-19 at 21.44.47.png",
+    title: "Autonomous Patching Feedback Loop",
+    sub: "Synthesizer agent rewriting vulnerable sections in the codebase",
+    tag: "Patching",
+    tagClass: "hp-tag-live",
+  },
+  {
+    id: "report",
+    tab: "6. Audit Report",
+    src: "/Screenshot 2026-06-19 at 21.45.30.png",
+    title: "Comprehensive Security Audits",
+    sub: "Vulnerability triage report with precise line ranges, OWASP tags, and mitigations",
+    tag: "Audit",
+    tagClass: "hp-tag-scan",
+  },
+];
+
+function ScreenshotsGallery() {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const activeItem = SCREENSHOTS[activeIndex];
+
+  const handlePrev = () => {
+    setActiveIndex((prev) => (prev === 0 ? SCREENSHOTS.length - 1 : prev - 1));
+  };
+
+  const handleNext = () => {
+    setActiveIndex((prev) => (prev === SCREENSHOTS.length - 1 ? 0 : prev + 1));
+  };
+
+  return (
+    <section className="hp-gallery-section hp-section">
+      <div className="hp-gallery-header hp-fade-up">
+        <div className="hp-eyebrow">IDE Tour</div>
+        <h2 className="hp-h2">
+          See <span>CodeSentinel</span> in Action
+        </h2>
+        <p className="hp-lead">
+          Explore the workflow of our automated developer-security assistant.
+        </p>
+      </div>
+
+      <div className="hp-gallery-tabs hp-fade-up">
+        {SCREENSHOTS.map((item, idx) => (
+          <button
+            key={item.id}
+            className={`hp-gallery-tab ${idx === activeIndex ? "active" : ""}`}
+            onClick={() => setActiveIndex(idx)}
+          >
+            {item.tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="hp-gallery-frame hp-fade-up">
+        <div className="hp-gallery-chrome">
+          <div className="hp-gallery-chrome-dot" />
+          <div className="hp-gallery-chrome-dot" />
+          <div className="hp-gallery-chrome-dot" />
+          <div className="hp-gallery-chrome-bar">
+            <span className="hp-gallery-chrome-lock">🔒</span>
+            <span className="hp-gallery-chrome-url">
+              localhost:3000/ide?step={activeItem.id}
+            </span>
+          </div>
+        </div>
+
+        <div className="hp-gallery-img-wrap">
+          <img
+            key={activeItem.id}
+            src={activeItem.src}
+            alt={activeItem.title}
+            className="hp-gallery-img entering"
+          />
+
+          <div className="hp-gallery-caption">
+            <div>
+              <div className="hp-gallery-caption-text">{activeItem.title}</div>
+              <div className="hp-gallery-caption-sub">{activeItem.sub}</div>
+            </div>
+            <span className={`hp-gallery-caption-tag ${activeItem.tagClass}`}>
+              {activeItem.tag}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="hp-gallery-nav hp-fade-up">
+        <button className="hp-gallery-arrow" onClick={handlePrev} aria-label="Previous screenshot">
+          ←
+        </button>
+        <div className="hp-gallery-dots">
+          {SCREENSHOTS.map((_, idx) => (
+            <button
+              key={idx}
+              className={`hp-gallery-dot ${idx === activeIndex ? "active" : ""}`}
+              onClick={() => setActiveIndex(idx)}
+              aria-label={`Go to screenshot ${idx + 1}`}
+            />
+          ))}
+        </div>
+        <button className="hp-gallery-arrow" onClick={handleNext} aria-label="Next screenshot">
+          →
+        </button>
+      </div>
+    </section>
+  );
+}
+
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Home() {
   useFadeOnScroll();
@@ -466,6 +616,9 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        {/* ── Screenshots Gallery ── */}
+        <ScreenshotsGallery />
 
         {/* ── Stats ── */}
         <div id="about" className="hp-section-full" style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--border-dim)", borderBottom: "1px solid var(--border-dim)" }}>

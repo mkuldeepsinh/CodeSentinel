@@ -705,7 +705,11 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     }
 
     const currentEvents = get().pipelineEvents;
-    filesMap[".sentinel/chat_history.json"] = JSON.stringify(currentEvents);
+    const chatEventsOnly = currentEvents.filter(e => e.node === "chat");
+    const pipelineEventsOnly = currentEvents.filter(e => e.node !== "chat");
+
+    filesMap[".sentinel/chat_history.json"] = JSON.stringify(chatEventsOnly);
+    filesMap[".sentinel/pipeline_history.json"] = JSON.stringify(pipelineEventsOnly);
 
     let securityScore = get().securityScore ?? 100;
     let findings: unknown[] = [];
@@ -830,7 +834,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       filesMap[targetFileRelativePath] = finalCode;
     }
 
-    // Update chat history inside filesMap if streaming just completed
+    // Update chat and pipeline histories inside filesMap if streaming just completed
     const currentEvents = get().pipelineEvents;
     if (get().isStreaming) {
       const doneEventAdded = currentEvents.some(e => e.type === "done" && e.message.includes(projectId));
@@ -843,38 +847,69 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
           timestamp: new Date()
         });
       }
-      filesMap[".sentinel/chat_history.json"] = JSON.stringify(finalEvents);
+
+      const chatEventsOnly = finalEvents.filter(e => e.node === "chat");
+      const pipelineEventsOnly = finalEvents.filter(e => e.node !== "chat");
+
+      filesMap[".sentinel/chat_history.json"] = JSON.stringify(chatEventsOnly);
+      filesMap[".sentinel/pipeline_history.json"] = JSON.stringify(pipelineEventsOnly);
     }
 
-    // Load chat history from filesMap if we are NOT streaming (i.e. loading project)
-    let chatHistoryLoaded = false;
-    if (filesMap[".sentinel/chat_history.json"]) {
-      try {
-        const parsedEvents = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
-        const formattedEvents = parsedEvents.map(evt => ({
-          ...evt,
-          timestamp: new Date(evt.timestamp),
-        }));
-        if (!get().isStreaming) {
-          set({ pipelineEvents: formattedEvents });
-          chatHistoryLoaded = true;
+    // Load chat and pipeline history from filesMap if we are NOT streaming (i.e. loading project)
+    if (!get().isStreaming) {
+      let pipelineHistory: PipelineEvent[] = [];
+      let chatHistory: PipelineEvent[] = [];
+
+      if (filesMap[".sentinel/pipeline_history.json"]) {
+        try {
+          pipelineHistory = JSON.parse(filesMap[".sentinel/pipeline_history.json"]) as PipelineEvent[];
+        } catch (err) {
+          console.error("Failed to parse pipeline history:", err);
         }
-      } catch (err) {
-        console.error("Failed to parse chat history:", err);
+      } else if (filesMap[".sentinel/chat_history.json"]) {
+        // Fallback for legacy unified format: filter out chat messages
+        try {
+          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
+          pipelineHistory = parsed.filter(e => e.node !== "chat");
+        } catch {}
       }
-    }
 
-    if (!chatHistoryLoaded && !get().isStreaming) {
-      set({
-        pipelineEvents: [
-          {
-            id: "sys-0",
-            type: "system",
-            message: `CodeSentinel ready for project "${projectId}". Type a requirement below to start the pipeline.`,
-            timestamp: new Date(),
-          },
-        ]
+      if (filesMap[".sentinel/chat_history.json"]) {
+        try {
+          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
+          chatHistory = parsed.filter(e => e.node === "chat" || !e.node);
+        } catch (err) {
+          console.error("Failed to parse chat history:", err);
+        }
+      }
+
+      // Map parsed timestamps back to Date objects
+      const mapTimestamp = (evt: PipelineEvent) => ({
+        ...evt,
+        timestamp: new Date(evt.timestamp),
       });
+      const formattedPipeline = pipelineHistory.map(mapTimestamp);
+      const formattedChat = chatHistory.map(mapTimestamp);
+
+      // Merge and sort
+      const unifiedEvents = [...formattedPipeline, ...formattedChat].sort(
+        (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      if (unifiedEvents.length > 0) {
+        set({ pipelineEvents: unifiedEvents });
+      } else {
+        set({
+          pipelineEvents: [
+            {
+              id: "sys-0",
+              type: "system",
+              message: `CodeSentinel ready for project "${projectId}". Type a requirement below to start the pipeline.`,
+              timestamp: new Date(),
+            },
+          ]
+        });
+      }
     }
 
     const reportContent = generateSecurityReport(params);

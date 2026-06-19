@@ -654,13 +654,13 @@ export default function BottomPanel() {
       setCurrentPrompt("");
       setStreaming(true);
 
-      addEvent({ type: "user", message: prompt });
-      addEvent({ type: "system", message: "Connecting to CodeSentinel Chat…" });
+      addEvent({ type: "user", message: prompt, node: "chat" });
+      addEvent({ type: "system", message: "Connecting to CodeSentinel Chat…", node: "chat" });
 
       try {
         const formattedHistory: ApiChatMessage[] = [];
         pipelineEvents.forEach(evt => {
-          if (evt.type === "user") {
+          if (evt.type === "user" && evt.node === "chat") {
             formattedHistory.push({ role: "user", content: evt.message });
           } else if (evt.type === "node_end" && evt.node === "chat") {
             formattedHistory.push({ role: "assistant", content: evt.message });
@@ -687,6 +687,7 @@ export default function BottomPanel() {
         addEvent({
           type: "error",
           message: `Chat failed: ${message}`,
+          node: "chat",
         });
       } finally {
         setStreaming(false);

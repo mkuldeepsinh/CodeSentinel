@@ -20,7 +20,7 @@ SQLITE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codesent
 def init_db():
     """
     Initialises tables in either PostgreSQL or SQLite.
-    Creates 'projects' and 'generations' tables.
+    Creates 'users', 'projects' and 'generations' tables.
     """
     if USE_POSTGRES:
         print("database.py: Initialising PostgreSQL (Supabase) database...")
@@ -33,6 +33,17 @@ def init_db():
                     except Exception as ve:
                         print(f"database.py WARNING: Failed to enable vector extension: {ve}")
                     
+                    # Create users table
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS users (
+                            id TEXT PRIMARY KEY,
+                            email TEXT UNIQUE NOT NULL,
+                            hashed_password TEXT,
+                            provider TEXT NOT NULL,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        );
+                    """)
+
                     # Create projects table
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS projects (
@@ -45,6 +56,12 @@ def init_db():
                         );
                     """)
                     
+                    # Add user_id column to projects if it does not exist (migration)
+                    try:
+                        cur.execute("ALTER TABLE projects ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE;")
+                    except Exception:
+                        pass
+
                     # Create generations table
                     # Note: We use TEXT for findings and store serialized JSON for uniformity,
                     # but PostgreSQL supports JSONB which we fallback to.
@@ -73,6 +90,15 @@ def _init_sqlite():
     with sqlite3.connect(SQLITE_PATH) as conn:
         cur = conn.cursor()
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                hashed_password TEXT,
+                provider TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -82,6 +108,11 @@ def _init_sqlite():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Add user_id column to projects if it does not exist (migration)
+        try:
+            cur.execute("ALTER TABLE projects ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE;")
+        except sqlite3.OperationalError:
+            pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS generations (
                 id TEXT PRIMARY KEY,
@@ -96,7 +127,85 @@ def _init_sqlite():
         conn.commit()
     print("database.py: SQLite setup completed successfully.")
 
-def create_project(project_id: str, name: str, prompt: str, language: str):
+def create_user(user_id: str, email: str, hashed_password: Optional[str], provider: str) -> Dict[str, Any]:
+    """
+    Creates a new user record.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO users (id, email, hashed_password, provider)
+                        VALUES (%s, %s, %s, %s)
+                        RETURNING *;
+                        """,
+                        (user_id, email, hashed_password, provider)
+                    )
+                    user = cur.fetchone()
+                conn.commit()
+            if user:
+                return user
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL create_user failed ({e}), using SQLite")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (id, email, hashed_password, provider)
+            VALUES (?, ?, ?, ?);
+            """,
+            (user_id, email, hashed_password, provider)
+        )
+        conn.commit()
+        cur.execute("SELECT * FROM users WHERE id = ?;", (user_id,))
+        row = cur.fetchone()
+        return dict(row)
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a user by email.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM users WHERE email = %s;", (email,))
+                    return cur.fetchone()
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL get_user_by_email failed ({e}), using SQLite fallback")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE email = ?;", (email,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a user by ID.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM users WHERE id = %s;", (user_id,))
+                    return cur.fetchone()
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL get_user_by_id failed ({e}), using SQLite fallback")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE id = ?;", (user_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def create_project(project_id: str, name: str, prompt: str, language: str, user_id: Optional[str] = None):
     """
     Creates or updates a project record.
     """
@@ -106,15 +215,16 @@ def create_project(project_id: str, name: str, prompt: str, language: str):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO projects (id, name, prompt, language, updated_at)
-                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        INSERT INTO projects (id, name, prompt, language, user_id, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (id) DO UPDATE SET
                             name = EXCLUDED.name,
                             prompt = EXCLUDED.prompt,
                             language = EXCLUDED.language,
+                            user_id = COALESCE(EXCLUDED.user_id, projects.user_id),
                             updated_at = CURRENT_TIMESTAMP;
                         """,
-                        (project_id, name, prompt, language)
+                        (project_id, name, prompt, language, user_id)
                     )
                 conn.commit()
             return
@@ -126,28 +236,33 @@ def create_project(project_id: str, name: str, prompt: str, language: str):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO projects (id, name, prompt, language, updated_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO projects (id, name, prompt, language, user_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT (id) DO UPDATE SET
                 name = excluded.name,
                 prompt = excluded.prompt,
                 language = excluded.language,
+                user_id = COALESCE(excluded.user_id, projects.user_id),
                 updated_at = CURRENT_TIMESTAMP;
             """,
-            (project_id, name, prompt, language)
+            (project_id, name, prompt, language, user_id)
         )
         conn.commit()
 
-def delete_project(project_id: str) -> bool:
+def delete_project(project_id: str, user_id: Optional[str] = None) -> bool:
     """
-    Deletes a project and all its generations.
+    Deletes a project and all its generations, optionally filtered by user_id.
     """
     if USE_POSTGRES:
         try:
             with psycopg.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM generations WHERE project_id = %s;", (project_id,))
-                    cur.execute("DELETE FROM projects WHERE id = %s;", (project_id,))
+                    if user_id:
+                        cur.execute("DELETE FROM generations WHERE project_id = %s AND EXISTS (SELECT 1 FROM projects WHERE id = %s AND user_id = %s);", (project_id, project_id, user_id))
+                        cur.execute("DELETE FROM projects WHERE id = %s AND user_id = %s;", (project_id, user_id))
+                    else:
+                        cur.execute("DELETE FROM generations WHERE project_id = %s;", (project_id,))
+                        cur.execute("DELETE FROM projects WHERE id = %s;", (project_id,))
                 conn.commit()
             return True
         except Exception as e:
@@ -155,20 +270,27 @@ def delete_project(project_id: str) -> bool:
 
     with sqlite3.connect(SQLITE_PATH) as conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM generations WHERE project_id = ?;", (project_id,))
-        cur.execute("DELETE FROM projects WHERE id = ?;", (project_id,))
+        if user_id:
+            cur.execute("DELETE FROM generations WHERE project_id = ? AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND user_id = ?);", (project_id, project_id, user_id))
+            cur.execute("DELETE FROM projects WHERE id = ? AND user_id = ?;", (project_id, user_id))
+        else:
+            cur.execute("DELETE FROM generations WHERE project_id = ?;", (project_id,))
+            cur.execute("DELETE FROM projects WHERE id = ?;", (project_id,))
         conn.commit()
     return True
 
-def get_project(project_id: str) -> Optional[Dict[str, Any]]:
+def get_project(project_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
-    Retrieves a project by ID.
+    Retrieves a project by ID, optionally filtered by user_id.
     """
     if USE_POSTGRES:
         try:
             with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT * FROM projects WHERE id = %s;", (project_id,))
+                    if user_id:
+                        cur.execute("SELECT * FROM projects WHERE id = %s AND user_id = %s;", (project_id, user_id))
+                    else:
+                        cur.execute("SELECT * FROM projects WHERE id = %s;", (project_id,))
                     return cur.fetchone()
         except Exception as e:
             print(f"database.py WARNING: PostgreSQL select failed ({e}), using SQLite fallback")
@@ -176,19 +298,25 @@ def get_project(project_id: str) -> Optional[Dict[str, Any]]:
     with sqlite3.connect(SQLITE_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("SELECT * FROM projects WHERE id = ?;", (project_id,))
+        if user_id:
+            cur.execute("SELECT * FROM projects WHERE id = ? AND user_id = ?;", (project_id, user_id))
+        else:
+            cur.execute("SELECT * FROM projects WHERE id = ?;", (project_id,))
         row = cur.fetchone()
         return dict(row) if row else None
 
-def get_all_projects() -> List[Dict[str, Any]]:
+def get_all_projects(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Retrieves all projects ordered by updated_at descending.
+    Retrieves all projects ordered by updated_at descending, optionally filtered by user_id.
     """
     if USE_POSTGRES:
         try:
             with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT * FROM projects ORDER BY updated_at DESC;")
+                    if user_id:
+                        cur.execute("SELECT * FROM projects WHERE user_id = %s ORDER BY updated_at DESC;", (user_id,))
+                    else:
+                        cur.execute("SELECT * FROM projects ORDER BY updated_at DESC;")
                     return cur.fetchall()
         except Exception as e:
             print(f"database.py WARNING: PostgreSQL select failed ({e}), using SQLite fallback")
@@ -196,7 +324,10 @@ def get_all_projects() -> List[Dict[str, Any]]:
     with sqlite3.connect(SQLITE_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("SELECT * FROM projects ORDER BY updated_at DESC;")
+        if user_id:
+            cur.execute("SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC;", (user_id,))
+        else:
+            cur.execute("SELECT * FROM projects ORDER BY updated_at DESC;")
         return [dict(r) for r in cur.fetchall()]
 
 def create_generation(project_id: str, code: str, security_score: int, findings: List[Any], embedding: List[float]):
@@ -448,24 +579,27 @@ def find_similar_generation(target_embedding: List[float], threshold: float = 0.
         return best_match
 
 
-def rename_project(old_id: str, new_id: str) -> bool:
+def rename_project(old_id: str, new_id: str, user_id: Optional[str] = None) -> bool:
     """
-    Renames a project ID in the database and updates associated generations.
+    Renames a project ID in the database and updates associated generations, optionally filtered by user_id.
     """
     if USE_POSTGRES:
         try:
             with psycopg.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT name, prompt, language FROM projects WHERE id = %s;", (old_id,))
+                    if user_id:
+                        cur.execute("SELECT name, prompt, language, user_id FROM projects WHERE id = %s AND user_id = %s;", (old_id, user_id))
+                    else:
+                        cur.execute("SELECT name, prompt, language, user_id FROM projects WHERE id = %s;", (old_id,))
                     row = cur.fetchone()
                     if not row:
                         return False
-                    name, prompt, language = row
+                    name, prompt, language, p_user_id = row
                     new_name = name.replace(old_id.replace("project_", ""), new_id.replace("project_", ""))
                     
                     cur.execute(
-                        "INSERT INTO projects (id, name, prompt, language) VALUES (%s, %s, %s, %s);",
-                        (new_id, new_name, prompt, language)
+                        "INSERT INTO projects (id, name, prompt, language, user_id) VALUES (%s, %s, %s, %s, %s);",
+                        (new_id, new_name, prompt, language, p_user_id)
                     )
                     cur.execute(
                         "UPDATE generations SET project_id = %s WHERE project_id = %s;",
@@ -481,17 +615,20 @@ def rename_project(old_id: str, new_id: str) -> bool:
     # SQLite Fallback
     with sqlite3.connect(SQLITE_PATH) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT name, prompt, language FROM projects WHERE id = ?;", (old_id,))
+        if user_id:
+            cur.execute("SELECT name, prompt, language, user_id FROM projects WHERE id = ? AND user_id = ?;", (old_id, user_id))
+        else:
+            cur.execute("SELECT name, prompt, language, user_id FROM projects WHERE id = ?;", (old_id,))
         row = cur.fetchone()
         if not row:
             return False
-        name, prompt, language = row
+        name, prompt, language, p_user_id = row
         new_name = name.replace(old_id.replace("project_", ""), new_id.replace("project_", ""))
 
         cur.execute("PRAGMA foreign_keys = OFF;")
         cur.execute(
-            "INSERT INTO projects (id, name, prompt, language) VALUES (?, ?, ?, ?);",
-            (new_id, new_name, prompt, language)
+            "INSERT INTO projects (id, name, prompt, language, user_id) VALUES (?, ?, ?, ?, ?);",
+            (new_id, new_name, prompt, language, p_user_id)
         )
         cur.execute(
             "UPDATE generations SET project_id = ? WHERE project_id = ?;",

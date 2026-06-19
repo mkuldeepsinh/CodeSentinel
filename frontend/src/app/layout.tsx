@@ -28,6 +28,8 @@ export const metadata: Metadata = {
   },
 };
 
+import SessionManager from "@/components/layout/SessionManager";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,7 +37,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        {children}
+        <SessionManager />
+      </body>
     </html>
   );
 }

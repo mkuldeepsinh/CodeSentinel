@@ -1,6 +1,7 @@
 "use client";
 
 import { useIDEStore, FileNode } from "@/store/ideStore";
+import { useAuthStore } from "@/store/authStore";
 import { Project } from "@/lib/api";
 import { getLanguageLabel } from "@/lib/languages";
 import {
@@ -516,6 +517,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 export default function Sidebar() {
+  const { user, logout } = useAuthStore();
   const {
     sidebarOpen, activeView,
     fileTree,
@@ -870,6 +872,49 @@ export default function Sidebar() {
               http://localhost:8000
             </code>
           </p>
+
+          <div style={{
+            marginTop: 24,
+            paddingTop: 16,
+            borderTop: "1px solid var(--border-default)",
+          }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+              Account Profile
+            </div>
+            <div style={{
+              background: "rgba(10, 9, 9, 0.4)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 6,
+              padding: 10,
+              marginBottom: 12,
+            }}>
+              <div style={{ fontWeight: 600, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {user?.email}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "capitalize", marginTop: 2 }}>
+                Provider: {user?.provider}
+              </div>
+            </div>
+            <button
+              onClick={() => logout()}
+              style={{
+                width: "100%",
+                background: "var(--accent-red)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                padding: "8px 12px",
+                fontWeight: 600,
+                fontSize: 11,
+                cursor: "pointer",
+                transition: "opacity 0.2s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       )}
     </div>

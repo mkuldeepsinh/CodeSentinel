@@ -77,6 +77,31 @@ export interface ParsedSSE {
  *
  * We correctly parse `event:` and `data:` as pairs.
  */
+function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  if (typeof window === "undefined") return extra;
+  const token = localStorage.getItem("codesentinel_token");
+  const headers: Record<string, string> = { ...extra };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Streams the pipeline SSE events from the backend.
+ *
+ * The backend uses the standard `text/event-stream` format:
+ *   event: node_start
+ *   data: {"node": "developer_agent"}
+ *
+ *   event: node_end
+ *   data: {"node": "developer_agent", "output": {...}}
+ *
+ *   event: done
+ *   data: {...full accumulated state...}
+ *
+ * We correctly parse `event:` and `data:` as pairs.
+ */
 export async function* streamGenerate(
   prompt:         string,
   language:       string,
@@ -86,7 +111,7 @@ export async function* streamGenerate(
 ): AsyncGenerator<ParsedSSE> {
   const resp = await fetch(`${API_BASE}/api/generate`, {
     method:  "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       prompt,
       language,
@@ -138,19 +163,28 @@ export async function* streamGenerate(
 // ── REST endpoints ────────────────────────────────────────────────────────────
 
 export async function fetchProjects(): Promise<Project[]> {
-  const resp = await fetch(`${API_BASE}/api/projects`, { cache: "no-store" });
+  const resp = await fetch(`${API_BASE}/api/projects`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
   if (!resp.ok) throw new Error(`fetchProjects: HTTP ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchProject(id: string): Promise<Project> {
-  const resp = await fetch(`${API_BASE}/api/projects/${id}`, { cache: "no-store" });
+  const resp = await fetch(`${API_BASE}/api/projects/${id}`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
   if (!resp.ok) throw new Error(`fetchProject: HTTP ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchGenerations(projectId: string): Promise<Generation[]> {
-  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, { cache: "no-store" });
+  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
   if (!resp.ok) throw new Error(`fetchGenerations: HTTP ${resp.status}`);
   return resp.json();
 }
@@ -173,7 +207,7 @@ export async function runCode(code: string, language: string): Promise<{
 }> {
   const resp = await fetch(`${API_BASE}/api/run`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ code, language }),
   });
   if (!resp.ok) {
@@ -186,6 +220,7 @@ export async function runCode(code: string, language: string): Promise<{
 export async function deleteProject(id: string): Promise<{ status: string; message: string }> {
   const resp = await fetch(`${API_BASE}/api/projects/${id}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
@@ -206,7 +241,7 @@ export async function sendChatPrompt(
 ): Promise<{ response: string }> {
   const resp = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       project_id: projectId,
       message,

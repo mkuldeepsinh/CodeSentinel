@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
 import "./homepage.css";
 
 /* ── Pipeline nodes data ──────────────────────────────────── */
@@ -565,6 +567,17 @@ function ScreenshotsShowcase() {
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Home() {
   useFadeOnScroll();
+  const { user, setAuthModalOpen } = useAuthStore();
+  const router = useRouter();
+
+  const handleLaunchIDE = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (user) {
+      router.push("/ide");
+    } else {
+      setAuthModalOpen(true);
+    }
+  };
 
   useEffect(() => {
     // Enable page scrolling dynamically on mount
@@ -603,9 +616,9 @@ export default function Home() {
               <a href="#about">About</a>
             </li>
             <li>
-              <Link href="/ide" className="hp-nav-cta">
+              <a href="/ide" onClick={handleLaunchIDE} className="hp-nav-cta">
                 Launch IDE
-              </Link>
+              </a>
             </li>
           </ul>
         </nav>
@@ -632,9 +645,9 @@ export default function Home() {
               </p>
 
               <div className="hp-hero-actions">
-                <Link href="/ide" className="hp-btn-primary">
+                <a href="/ide" onClick={handleLaunchIDE} className="hp-btn-primary">
                   <span>⚡</span> Launch IDE
-                </Link>
+                </a>
                 <a href="#pipeline" className="hp-btn-ghost">
                   See the pipeline →
                 </a>
@@ -875,9 +888,9 @@ export default function Home() {
             rest. No setup. No config. Just secure code.
           </p>
           <div className="hp-cta-actions">
-            <Link href="/ide" className="hp-btn-primary">
+            <a href="/ide" onClick={handleLaunchIDE} className="hp-btn-primary">
               <span>⚡</span> Open CodeSentinel IDE
-            </Link>
+            </a>
             <a
               href="https://github.com"
               target="_blank"
@@ -898,7 +911,7 @@ export default function Home() {
             <div className="hp-footer-links">
               <a href="#pipeline">Pipeline</a>
               <a href="#features">Features</a>
-              <Link href="/ide">IDE</Link>
+              <a href="/ide" onClick={handleLaunchIDE}>IDE</a>
             </div>
           </div>
         </footer>

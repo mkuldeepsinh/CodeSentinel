@@ -1,6 +1,8 @@
 "use client";
 
 import { useIDEStore } from "@/store/ideStore";
+import { useAuthStore } from "@/store/authStore";
+import { useRouter } from "next/navigation";
 import Sidebar from "./Sidebar";
 import EditorZone from "./EditorZone";
 import BottomPanel from "./BottomPanel";
@@ -9,10 +11,28 @@ import { useCallback, useRef, useState, useEffect } from "react";
 
 export default function IDEShell() {
   const { sidebarOpen, panelOpen, panelHeight, setPanelHeight } = useIDEStore();
+  const { user, setAuthModalOpen, isAuthModalOpen } = useAuthStore();
+  const router = useRouter();
   const [isDragging, setIsDragging] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
+
+  // Secure IDE route access
+  useEffect(() => {
+    const storedToken = typeof window !== "undefined" ? localStorage.getItem("codesentinel_token") : null;
+    if (!storedToken && !user) {
+      setAuthModalOpen(true);
+    }
+  }, [user, setAuthModalOpen]);
+
+  // If user dismisses the auth modal without authenticating, redirect to landing page
+  useEffect(() => {
+    const storedToken = typeof window !== "undefined" ? localStorage.getItem("codesentinel_token") : null;
+    if (!user && !storedToken && !isAuthModalOpen) {
+      router.push("/");
+    }
+  }, [user, isAuthModalOpen, router]);
 
   // Panel resize drag
   const onResizeStart = useCallback((e: React.MouseEvent) => {
@@ -37,6 +57,27 @@ export default function IDEShell() {
       document.removeEventListener("mouseup", onUp);
     };
   }, [isDragging, setPanelHeight]);
+
+  // Prevent rendering workspace UI while unauthenticated to avoid screen flashing
+  if (!user) {
+    return (
+      <div style={{
+        width: "100vw",
+        height: "100vh",
+        background: "var(--bg-base)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: "1.5rem"
+      }}>
+        <div className="sso-spinner"></div>
+        <div style={{ color: "var(--text-muted)", fontSize: "1.1rem", fontFamily: "var(--font-ui)" }}>
+          Authenticating workspace...
+        </div>
+      </div>
+    );
+  }
 
   const gridTemplateRows = panelOpen
     ? `1fr ${panelHeight}px 24px`

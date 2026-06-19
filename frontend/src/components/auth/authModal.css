@@ -1,0 +1,484 @@
+/* ── Basalt Glassmorphic Authentication Overlay ── */
+
+.auth-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 9, 9, 0.82);
+  backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: authFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-modal {
+  background: rgba(17, 15, 15, 0.85);
+  border: 1px solid rgba(200, 122, 83, 0.15); /* light terracotta border hint */
+  border-radius: 12px;
+  width: 440px;
+  max-width: 90%;
+  padding: 2.2rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+  position: relative;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  backdrop-filter: blur(25px);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+/* Subtle glowing accent indicator */
+.auth-modal::before {
+  content: '';
+  position: absolute;
+  top: -80px;
+  right: -80px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(224, 106, 59, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.auth-close-btn {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.auth-close-btn:hover {
+  color: var(--accent-cyan);
+  transform: rotate(90deg);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-logo-text {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, var(--text-bright) 30%, var(--accent-cyan) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.5rem;
+}
+
+.auth-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* Tabs */
+.auth-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-default);
+  margin-bottom: 1.75rem;
+}
+
+.auth-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 0.75rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.auth-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.auth-tab-btn.active {
+  color: var(--accent-cyan);
+}
+
+.auth-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: var(--accent-blue);
+}
+
+/* Forms */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.auth-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.auth-form-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-input-wrapper {
+  position: relative;
+}
+
+.auth-input {
+  width: 100%;
+  background: rgba(10, 9, 9, 0.6);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: var(--font-ui);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(200, 122, 83, 0.15);
+}
+
+.auth-error-msg {
+  color: var(--accent-red);
+  font-size: 0.85rem;
+  background: rgba(194, 87, 78, 0.08);
+  border: 1px solid rgba(194, 87, 78, 0.2);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.auth-submit-btn {
+  background: var(--accent-blue);
+  color: var(--bg-base);
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  padding: 0.85rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.auth-submit-btn:hover:not(:disabled) {
+  background: var(--accent-cyan);
+}
+
+.auth-submit-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.auth-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* SSO Divider */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 1.5rem 0;
+  color: var(--text-disabled);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.auth-divider:not(:empty)::before {
+  margin-right: .75em;
+}
+
+.auth-divider:not(:empty)::after {
+  margin-left: .75em;
+}
+
+/* SSO Buttons */
+.auth-sso-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.auth-sso-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  background: rgba(23, 21, 21, 0.8);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-sso-btn:hover {
+  background: var(--bg-overlay);
+  border-color: rgba(200, 122, 83, 0.4);
+  color: var(--text-primary);
+}
+
+.auth-sso-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* SSO Simulated Popup View */
+.sso-popup-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1rem 0;
+  animation: authSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sso-provider-logo {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 1rem;
+}
+
+.sso-popup-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.sso-popup-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1.75rem;
+}
+
+.sso-account-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.sso-account-item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  background: rgba(10, 9, 9, 0.4);
+  border: 1px solid var(--border-default);
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.sso-account-item:hover {
+  border-color: var(--accent-blue);
+  background: rgba(23, 21, 21, 0.6);
+}
+
+.sso-account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: var(--accent-cyan);
+  border: 1px solid rgba(224, 106, 59, 0.2);
+}
+
+.sso-account-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sso-account-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sso-account-email {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.sso-custom-input-box {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  animation: authFadeIn 0.2s ease;
+}
+
+.sso-github-auth-card {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: rgba(10, 9, 9, 0.4);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.sso-github-logos {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.sso-github-logo-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #24292e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sso-github-arrow {
+  font-size: 1.4rem;
+  color: var(--accent-blue);
+  animation: authPulse 1.5s infinite;
+}
+
+.sso-github-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.sso-github-btn {
+  background: #2ea44f;
+  color: white;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.sso-github-btn:hover {
+  background: #2c974b;
+}
+
+.sso-loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 0;
+}
+
+.sso-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid rgba(200, 122, 83, 0.1);
+  border-top: 3px solid var(--accent-blue);
+  border-radius: 50%;
+  animation: authSpin 0.9s linear infinite;
+  margin-bottom: 1.25rem;
+}
+
+.sso-success-checkmark {
+  font-size: 2.8rem;
+  color: var(--accent-green);
+  margin-bottom: 1.25rem;
+  transform: scale(0);
+  animation: authScaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.sso-back-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.sso-back-btn:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* Animations */
+@keyframes authFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes authSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes authScaleUp {
+  to { transform: scale(1); }
+}
+
+@keyframes authPulse {
+  0%, 100% { opacity: 0.6; transform: translateX(0); }
+  50% { opacity: 1; transform: translateX(4px); }
+}

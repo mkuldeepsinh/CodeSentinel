@@ -2,7 +2,8 @@ import os
 import json
 import asyncio
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -21,12 +22,42 @@ from database import (
     find_similar_generation,
     create_project,
     create_generation,
-    delete_project
+    delete_project,
+    rename_project,
+    create_user,
+    get_user_by_email
 )
 from embeddings import get_embedding
 
 # Load environment variables first so tracing vars are available
 load_dotenv(find_dotenv())
+
+# Auth security scheme
+security_scheme = HTTPBearer(auto_error=False)
+
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme)):
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication token required")
+    token = credentials.credentials
+    from auth import decode_access_token
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
+    return payload
+
+# Setup Auth Request models
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class SSORequest(BaseModel):
+    email: str
+    provider: str
+    name: Optional[str] = ""
 
 # Setup request model
 class GenerateRequest(BaseModel):
@@ -102,6 +133,91 @@ async def health():
         "checkpointer": checkpointer_type,
         "langsmith_tracing": tracing_active,
         "langsmith_project": os.environ.get("LANGCHAIN_PROJECT", "CodeSentinel"),
+    }
+
+@app.post("/api/auth/signup")
+async def auth_signup(request: SignupRequest):
+    email = request.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
+    
+    existing = get_user_by_email(email)
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+        
+    from auth import hash_password, create_access_token
+    import uuid
+    
+    hashed = hash_password(request.password)
+    user_id = f"user_{str(uuid.uuid4())[:8]}"
+    try:
+        user = create_user(user_id=user_id, email=email, hashed_password=hashed, provider="email")
+        token = create_access_token({"sub": user["id"], "email": user["email"]})
+        return {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "provider": user["provider"]
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/auth/login")
+async def auth_login(request: LoginRequest):
+    email = request.email.strip().lower()
+    user = get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    if user["provider"] != "email":
+        raise HTTPException(status_code=400, detail=f"Please sign in using {user['provider'].capitalize()} instead.")
+        
+    from auth import verify_password, create_access_token
+    if not verify_password(request.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        
+    token = create_access_token({"sub": user["id"], "email": user["email"]})
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "provider": user["provider"]
+        }
+    }
+
+@app.post("/api/auth/sso")
+async def auth_sso(request: SSORequest):
+    email = request.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+    if request.provider not in ("google", "github"):
+        raise HTTPException(status_code=400, detail="Invalid SSO provider.")
+        
+    user = get_user_by_email(email)
+    from auth import create_access_token
+    
+    if not user:
+        import uuid
+        user_id = f"user_{str(uuid.uuid4())[:8]}"
+        user = create_user(user_id=user_id, email=email, hashed_password=None, provider=request.provider)
+    elif user["provider"] != request.provider:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This email is already registered via {user['provider'].capitalize()}. Please use that option."
+        )
+        
+    token = create_access_token({"sub": user["id"], "email": user["email"]})
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "provider": user["provider"]
+        }
     }
 
 async def event_generator(prompt: str, language: str, project_id: str, code: str = "", skip_developer: Optional[bool] = None):
@@ -200,7 +316,7 @@ async def event_generator(prompt: str, language: str, project_id: str, code: str
         yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
 @app.post("/api/generate")
-async def generate(request: GenerateRequest):
+async def generate(request: GenerateRequest, current_user: dict = Depends(get_current_user)):
     """
     Submits user prompt to security pipeline and yields live Server-Sent Events (SSE).
     Performs prompt validation, project context retrieval, and semantic deduplication.
@@ -212,9 +328,15 @@ async def generate(request: GenerateRequest):
     resolved_prompt = request.prompt
     resolved_language = request.language
     
+    # Check ownership if project_id is provided
+    if resolved_project_id:
+        existing_proj = get_project(resolved_project_id)
+        if existing_proj and existing_proj.get("user_id") != current_user["sub"]:
+            raise HTTPException(status_code=403, detail="Access denied to this project.")
+    
     # 1. If project_id is given but prompt is empty, load existing prompt from db
     if resolved_project_id and not resolved_prompt:
-        project_data = get_project(resolved_project_id)
+        project_data = get_project(resolved_project_id, user_id=current_user["sub"])
         if not project_data:
             raise HTTPException(status_code=404, detail="Project not found.")
         resolved_prompt = project_data["prompt"]
@@ -294,7 +416,8 @@ async def generate(request: GenerateRequest):
             project_id=resolved_project_id,
             name=f"Project {resolved_project_id[:8]}",
             prompt=resolved_prompt,
-            language=resolved_language
+            language=resolved_language,
+            user_id=current_user["sub"]
         )
     except Exception as e:
         print(f"main.py WARNING: Failed to write initial project to database: {e}")
@@ -306,42 +429,45 @@ async def generate(request: GenerateRequest):
     )
 
 @app.get("/api/projects")
-async def list_projects():
+async def list_projects(current_user: dict = Depends(get_current_user)):
     """
     Retrieves all projects stored in long-term memory.
     """
-    return get_all_projects()
+    return get_all_projects(user_id=current_user["sub"])
 
 @app.get("/api/projects/{project_id}")
-async def retrieve_project(project_id: str):
+async def retrieve_project(project_id: str, current_user: dict = Depends(get_current_user)):
     """
     Retrieves a single project by ID.
     """
-    project = get_project(project_id)
+    project = get_project(project_id, user_id=current_user["sub"])
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
 @app.delete("/api/projects/{project_id}")
-async def remove_project(project_id: str):
+async def remove_project(project_id: str, current_user: dict = Depends(get_current_user)):
     """
     Deletes a project and its code generations from the database.
     """
-    project = get_project(project_id)
+    project = get_project(project_id, user_id=current_user["sub"])
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
     try:
-        delete_project(project_id)
+        delete_project(project_id, user_id=current_user["sub"])
         return {"status": "success", "message": f"Project {project_id} deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/projects/{project_id}/generations")
-async def project_history(project_id: str):
+async def project_history(project_id: str, current_user: dict = Depends(get_current_user)):
     """
     Retrieves all generations associated with a project.
     """
+    project = get_project(project_id, user_id=current_user["sub"])
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
     generations = get_project_generations(project_id)
     return generations
 
@@ -352,7 +478,7 @@ class CreateProjectRequest(BaseModel):
     prompt: Optional[str] = ""
 
 @app.post("/api/projects")
-async def api_create_project(request: CreateProjectRequest):
+async def api_create_project(request: CreateProjectRequest, current_user: dict = Depends(get_current_user)):
     """
     Creates a new project and initializes it with a README.md.
     """
@@ -365,7 +491,8 @@ async def api_create_project(request: CreateProjectRequest):
             project_id=request.id,
             name=request.name,
             prompt=request.prompt or "Manually created project folder",
-            language=request.language
+            language=request.language,
+            user_id=current_user["sub"]
         )
         
         # Initialize with a default README.md file mapping
@@ -393,11 +520,11 @@ class SaveCodeRequest(BaseModel):
     findings: Optional[List[Any]] = []
 
 @app.post("/api/projects/{project_id}/code")
-async def save_project_code(project_id: str, request: SaveCodeRequest):
+async def save_project_code(project_id: str, request: SaveCodeRequest, current_user: dict = Depends(get_current_user)):
     """
     Saves manually edited code or file structures to the database as a new generation.
     """
-    project = get_project(project_id)
+    project = get_project(project_id, user_id=current_user["sub"])
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
         
@@ -418,7 +545,7 @@ class RunRequest(BaseModel):
     language: str
 
 @app.post("/api/run")
-async def run_code(request: RunRequest):
+async def run_code(request: RunRequest, current_user: dict = Depends(get_current_user)):
     """
     Executes code inside an E2B Sandbox on demand.
     """
@@ -438,7 +565,7 @@ class RenameProjectRequest(BaseModel):
     new_id: str
 
 @app.post("/api/projects/{project_id}/rename")
-async def rename_project_api(project_id: str, request: RenameProjectRequest):
+async def rename_project_api(project_id: str, request: RenameProjectRequest, current_user: dict = Depends(get_current_user)):
     if not request.new_id.strip():
         raise HTTPException(status_code=400, detail="New name cannot be empty.")
     
@@ -451,7 +578,7 @@ async def rename_project_api(project_id: str, request: RenameProjectRequest):
         raise HTTPException(status_code=400, detail="A project with this name already exists.")
 
     from database import rename_project
-    success = rename_project(project_id, new_id)
+    success = rename_project(project_id, new_id, user_id=current_user["sub"])
     if not success:
         raise HTTPException(status_code=404, detail="Project not found or rename failed.")
     return {"status": "success", "new_project_id": new_id}
@@ -467,10 +594,15 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = None
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     Handles normal chat with CodeSentinel without running the main multi-agent security pipeline.
     """
+    # Verify ownership of project
+    project = get_project(request.project_id, user_id=current_user["sub"])
+    if not project:
+        raise HTTPException(status_code=403, detail="Access denied to this project.")
+
     try:
         from graph.nodes import get_llm
         llm = get_llm("DEVELOPER_MODEL", "gemini-2.5-flash-lite")

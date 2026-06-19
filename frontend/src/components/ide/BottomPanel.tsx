@@ -1,7 +1,7 @@
 "use client";
 
 import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams, FileNode } from "@/store/ideStore";
-import { streamGenerate, runCode } from "@/lib/api";
+import { streamGenerate, runCode, sendChatPrompt, ChatMessage as ApiChatMessage } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
 import {
@@ -40,6 +40,7 @@ const NODE_LABELS: Record<string, string> = {
   e2b_verify:        "E2B Verify",
   finalize:          "Finalize",
   semantic_cache_hit: "Cache Hit",
+  chat:               "CodeSentinel",
 };
 
 // ── Node Status Pill ──────────────────────────────────────────────────────────
@@ -332,12 +333,14 @@ export default function BottomPanel() {
     appendAuditSnapshot, setAuditTrail,
     scanRequest, setScanRequest,
     activeProjectId, tabs, activeTabId, fileTree,
+    saveChatHistory,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [confirmData, setConfirmData] = useState<{ prompt: string; fileRelativePath: string } | null>(null);
+  const [chatMode, setChatMode] = useState<"pipeline" | "chat">("pipeline");
 
   // Auto-scroll chat log
   useEffect(() => {
@@ -647,6 +650,50 @@ export default function BottomPanel() {
     const prompt = currentPrompt.trim();
     if (!prompt || isStreaming) return;
 
+    if (chatMode === "chat") {
+      setCurrentPrompt("");
+      setStreaming(true);
+
+      addEvent({ type: "user", message: prompt });
+      addEvent({ type: "system", message: "Connecting to CodeSentinel Chat…" });
+
+      try {
+        const formattedHistory: ApiChatMessage[] = [];
+        pipelineEvents.forEach(evt => {
+          if (evt.type === "user") {
+            formattedHistory.push({ role: "user", content: evt.message });
+          } else if (evt.type === "node_end" && evt.node === "chat") {
+            formattedHistory.push({ role: "assistant", content: evt.message });
+          }
+        });
+
+        const response = await sendChatPrompt(
+          activeProjectId || "default",
+          prompt,
+          formattedHistory
+        );
+
+        addEvent({
+          type: "node_end",
+          node: "chat",
+          message: response.response,
+        });
+
+        if (activeProjectId) {
+          await saveChatHistory(activeProjectId);
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        addEvent({
+          type: "error",
+          message: `Chat failed: ${message}`,
+        });
+      } finally {
+        setStreaming(false);
+      }
+      return;
+    }
+
     // Check if prompt is a sandbox run command
     const isRunCmd = /^(run(\s+.*)?|\.\/.*|python[3]?\s+.*|node\s+.*|go\s+run\s+.*)$/i.test(prompt);
 
@@ -870,7 +917,7 @@ export default function BottomPanel() {
                 </div>
               </div>
             )}
-            <PipelineProgress />
+            {chatMode === "pipeline" && <PipelineProgress />}
 
             <div className="cli-log">
               {pipelineEvents.map(evt => (
@@ -882,14 +929,66 @@ export default function BottomPanel() {
             {/* Prompt bar */}
             <form className="cli-prompt-bar" onSubmit={handleSubmit}>
               <span className="cli-prompt-prefix">$›</span>
+
+              {/* Segmented Mode Selector */}
+              <div style={{
+                display: "flex",
+                background: "var(--bg-highlight)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 4,
+                padding: 2,
+                gap: 2,
+                marginRight: 4,
+                flexShrink: 0
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setChatMode("pipeline")}
+                  disabled={isStreaming}
+                  style={{
+                    background: chatMode === "pipeline" ? "rgba(122, 162, 247, 0.15)" : "transparent",
+                    border: "none",
+                    borderRadius: 3,
+                    color: chatMode === "pipeline" ? "var(--accent-blue)" : "var(--text-muted)",
+                    fontSize: 10,
+                    padding: "3px 6px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  PIPELINE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatMode("chat")}
+                  disabled={isStreaming}
+                  style={{
+                    background: chatMode === "chat" ? "rgba(158, 206, 106, 0.15)" : "transparent",
+                    border: "none",
+                    borderRadius: 3,
+                    color: chatMode === "chat" ? "var(--accent-green)" : "var(--text-muted)",
+                    fontSize: 10,
+                    padding: "3px 6px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  CHAT
+                </button>
+              </div>
+
               <input
                 ref={inputRef}
                 id="cli-input"
                 className="cli-input"
                 placeholder={
                   isStreaming
-                    ? "Pipeline running…"
-                    : "Describe the code to generate and secure…"
+                    ? (chatMode === "chat" ? "CodeSentinel thinking…" : "Pipeline running…")
+                    : (chatMode === "chat" ? "Ask CodeSentinel anything (bypass pipeline)…" : "Describe the code to generate and secure…")
                 }
                 value={currentPrompt}
                 onChange={e => setCurrentPrompt(e.target.value)}
@@ -900,28 +999,30 @@ export default function BottomPanel() {
               />
 
               {/* Language selector */}
-              <select
-                id="language-select"
-                value={currentLanguage}
-                onChange={e => setCurrentLanguage(e.target.value)}
-                disabled={isStreaming}
-                style={{
-                  background:   "var(--bg-highlight)",
-                  border:       "1px solid var(--border-subtle)",
-                  borderRadius: 3,
-                  color:        "var(--text-secondary)",
-                  fontSize:     11,
-                  padding:      "2px 6px",
-                  cursor:       "pointer",
-                  outline:      "none",
-                  flexShrink:   0,
-                  fontFamily:   "var(--font-mono)",
-                }}
-              >
-                {SUPPORTED_LANGUAGES.map(l => (
-                  <option key={l.value} value={l.value}>{l.label}</option>
-                ))}
-              </select>
+              {chatMode === "pipeline" && (
+                <select
+                  id="language-select"
+                  value={currentLanguage}
+                  onChange={e => setCurrentLanguage(e.target.value)}
+                  disabled={isStreaming}
+                  style={{
+                    background:   "var(--bg-highlight)",
+                    border:       "1px solid var(--border-subtle)",
+                    borderRadius: 3,
+                    color:        "var(--text-secondary)",
+                    fontSize:     11,
+                    padding:      "2px 6px",
+                    cursor:       "pointer",
+                    outline:      "none",
+                    flexShrink:   0,
+                    fontFamily:   "var(--font-mono)",
+                  }}
+                >
+                  {SUPPORTED_LANGUAGES.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              )}
 
               <button
                 type="submit"

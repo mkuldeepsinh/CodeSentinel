@@ -193,3 +193,31 @@ export async function deleteProject(id: string): Promise<{ status: string; messa
   }
   return resp.json();
 }
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function sendChatPrompt(
+  projectId: string,
+  message: string,
+  history?: ChatMessage[]
+): Promise<{ response: string }> {
+  const resp = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: projectId,
+      message,
+      history,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`HTTP ${resp.status}: ${text}`);
+  }
+
+  return resp.json();
+}

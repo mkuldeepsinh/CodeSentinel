@@ -434,6 +434,51 @@ async def run_code(request: RunRequest):
         }
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    project_id: str
+    message: str
+    history: Optional[List[ChatMessage]] = None
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    """
+    Handles normal chat with CodeSentinel without running the main multi-agent security pipeline.
+    """
+    try:
+        from graph.nodes import get_llm
+        llm = get_llm("DEVELOPER_MODEL", "gemini-2.5-flash-lite")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load LLM: {str(e)}")
+
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
+    messages = []
+    system_prompt = (
+        "You are CodeSentinel, a helpful AI assistant built to help developers with security, debugging, and code development. "
+        "Provide clear, concise, and professional answers."
+    )
+    messages.append(SystemMessage(content=system_prompt))
+
+    if request.history:
+        for msg in request.history:
+            if msg.role == "user":
+                messages.append(HumanMessage(content=msg.content))
+            else:
+                messages.append(AIMessage(content=msg.content))
+
+    messages.append(HumanMessage(content=request.message))
+
+    try:
+        response = await llm.ainvoke(messages)
+        return {"response": response.content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM invocation failed: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     

@@ -145,6 +145,7 @@ interface IDEStore {
   createProject:       (projectId: string, language: string) => Promise<void>;
   createFile:          (projectId: string, filePath: string, content: string) => Promise<void>;
   saveFileContent:     (projectId: string, filePath: string, content: string) => Promise<void>;
+  saveChatHistory:     (projectId: string) => Promise<void>;
   createProjectFiles:  (params: CreateProjectParams) => void;
   updateLiveCode:      (code: string, language: string) => void;
   switchProject:       (projectId: string) => Promise<void>;
@@ -623,15 +624,10 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const extractFiles = (node: FileNode) => {
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
-        if (
-          relativePath !== "security_report.md" &&
-          !relativePath.startsWith(".sentinel/")
-        ) {
-          if (node.id === `${projectId}/${filePath}`) {
-            filesMap[relativePath] = content;
-          } else {
-            filesMap[relativePath] = node.content ?? "";
-          }
+        if (node.id === `${projectId}/${filePath}`) {
+          filesMap[relativePath] = content;
+        } else {
+          filesMap[relativePath] = node.content ?? "";
         }
       } else if (node.children) {
         node.children.forEach(extractFiles);
@@ -644,12 +640,28 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 
     filesMap[filePath] = content;
 
+    let securityScore = 100;
+    let findings: unknown[] = [];
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      if (resp.ok) {
+        const gens = await resp.json();
+        const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        if (latest) {
+          securityScore = latest.security_score;
+          findings = latest.findings ?? [];
+        }
+      }
+    } catch {}
+
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: JSON.stringify({ files: filesMap }),
+          security_score: securityScore,
+          findings: findings,
         }),
       });
 
@@ -671,6 +683,82 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       }
     } catch (err) {
       console.error("Error saving file content:", err);
+    }
+  },
+
+  saveChatHistory: async (projectId) => {
+    const { fileTree } = get();
+    const projectNode = fileTree.find(n => n.id === projectId);
+    const filesMap: Record<string, string> = {};
+
+    const extractAllFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${projectId}/`, "");
+        filesMap[relativePath] = node.content ?? "";
+      } else if (node.children) {
+        node.children.forEach(extractAllFiles);
+      }
+    };
+
+    if (projectNode) {
+      extractAllFiles(projectNode);
+    }
+
+    const currentEvents = get().pipelineEvents;
+    filesMap[".sentinel/chat_history.json"] = JSON.stringify(currentEvents);
+
+    let securityScore = get().securityScore ?? 100;
+    let findings: unknown[] = [];
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      if (resp.ok) {
+        const gens = await resp.json();
+        const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        if (latest) {
+          securityScore = latest.security_score;
+          findings = latest.findings ?? [];
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching latest generations metadata:", err);
+    }
+
+    const processedCode = JSON.stringify({ files: filesMap });
+
+    try {
+      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: processedCode,
+          security_score: securityScore,
+          findings: findings,
+        }),
+      });
+
+      set(s => {
+        const updatedParams = {
+          projectId,
+          prompt: s.currentPrompt || "Manual Chat Update",
+          language: s.liveLanguage || "javascript",
+          finalCode: processedCode,
+          auditTrail: s.auditTrail,
+          scoreHistory: s.scoreHistory,
+          securityScore: securityScore,
+          verdict: securityScore === 100 ? "clean" : "fix",
+          reasoning: "",
+          findings,
+        };
+        const newProjectNode = buildProjectTree(updatedParams);
+        const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
+        const newTree = existingIdx >= 0
+          ? s.fileTree.map((n, i) => i === existingIdx ? newProjectNode : n)
+          : [...s.fileTree, newProjectNode];
+
+        return { fileTree: newTree };
+      });
+    } catch (err) {
+      console.error("Error saving chat history:", err);
     }
   },
 

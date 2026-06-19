@@ -85,6 +85,18 @@ def init_db():
     else:
         _init_sqlite()
 
+    # Seed default admin user if not exists
+    try:
+        from auth import hash_password
+        admin_email = "admin@codesentinel.com"
+        admin = get_user_by_email(admin_email)
+        if not admin:
+            print("database.py: Seeding admin user...")
+            hashed = hash_password("admin123456")
+            create_user(user_id="user_admin", email=admin_email, hashed_password=hashed, provider="email")
+    except Exception as e:
+        print(f"database.py WARNING: Failed to seed admin user: {e}")
+
 def _init_sqlite():
     print(f"database.py: Initialising SQLite database at {SQLITE_PATH}...")
     with sqlite3.connect(SQLITE_PATH) as conn:

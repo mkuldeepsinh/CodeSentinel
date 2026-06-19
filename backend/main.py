@@ -471,14 +471,16 @@ async def generate(request: GenerateRequest, current_user: dict = Depends(get_cu
     resolved_language = request.language
     
     # Check ownership if project_id is provided
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
     if resolved_project_id:
         existing_proj = get_project(resolved_project_id)
-        if existing_proj and existing_proj.get("user_id") != current_user["sub"]:
+        if existing_proj and not is_admin and existing_proj.get("user_id") != current_user["sub"]:
             raise HTTPException(status_code=403, detail="Access denied to this project.")
     
     # 1. If project_id is given but prompt is empty, load existing prompt from db
     if resolved_project_id and not resolved_prompt:
-        project_data = get_project(resolved_project_id, user_id=current_user["sub"])
+        user_id = None if is_admin else current_user["sub"]
+        project_data = get_project(resolved_project_id, user_id=user_id)
         if not project_data:
             raise HTTPException(status_code=404, detail="Project not found.")
         resolved_prompt = project_data["prompt"]
@@ -575,14 +577,18 @@ async def list_projects(current_user: dict = Depends(get_current_user)):
     """
     Retrieves all projects stored in long-term memory.
     """
-    return get_all_projects(user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    return get_all_projects(user_id=user_id)
 
 @app.get("/api/projects/{project_id}")
 async def retrieve_project(project_id: str, current_user: dict = Depends(get_current_user)):
     """
     Retrieves a single project by ID.
     """
-    project = get_project(project_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    project = get_project(project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
@@ -592,12 +598,14 @@ async def remove_project(project_id: str, current_user: dict = Depends(get_curre
     """
     Deletes a project and its code generations from the database.
     """
-    project = get_project(project_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    project = get_project(project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     
     try:
-        delete_project(project_id, user_id=current_user["sub"])
+        delete_project(project_id, user_id=user_id)
         return {"status": "success", "message": f"Project {project_id} deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -607,7 +615,9 @@ async def project_history(project_id: str, current_user: dict = Depends(get_curr
     """
     Retrieves all generations associated with a project.
     """
-    project = get_project(project_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    project = get_project(project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     generations = get_project_generations(project_id)
@@ -666,7 +676,9 @@ async def save_project_code(project_id: str, request: SaveCodeRequest, current_u
     """
     Saves manually edited code or file structures to the database as a new generation.
     """
-    project = get_project(project_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    project = get_project(project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
         
@@ -720,7 +732,9 @@ async def rename_project_api(project_id: str, request: RenameProjectRequest, cur
         raise HTTPException(status_code=400, detail="A project with this name already exists.")
 
     from database import rename_project
-    success = rename_project(project_id, new_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    success = rename_project(project_id, new_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found or rename failed.")
     return {"status": "success", "new_project_id": new_id}
@@ -741,7 +755,9 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
     Handles normal chat with CodeSentinel without running the main multi-agent security pipeline.
     """
     # Verify ownership of project
-    project = get_project(request.project_id, user_id=current_user["sub"])
+    is_admin = current_user.get("email") == "admin@codesentinel.com"
+    user_id = None if is_admin else current_user["sub"]
+    project = get_project(request.project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=403, detail="Access denied to this project.")
 

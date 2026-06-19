@@ -324,7 +324,6 @@ function EmptyEditor() {
 
   return (
     <div className="editor-placeholder fade-in">
-      <div style={{ fontSize: 56, opacity: 0.15, lineHeight: 1 }}>🛡️</div>
       <h2>CodeSentinel</h2>
       <p style={{ maxWidth: 360, textAlign: "center", lineHeight: 1.6, color: "var(--text-muted)" }}>
         Type a security requirement in the panel below to generate and harden code,

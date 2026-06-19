@@ -19,9 +19,17 @@ export const LANG_EXT: Record<string, string> = {
 };
 
 /** Maps file extension → language name */
-export const EXT_LANG: Record<string, string> = Object.fromEntries(
-  Object.entries(LANG_EXT).map(([lang, ext]) => [ext, lang])
-);
+export const EXT_LANG: Record<string, string> = {
+  ...Object.fromEntries(
+    Object.entries(LANG_EXT).map(([lang, ext]) => [ext, lang])
+  ),
+  json: "json",
+  css: "css",
+  html: "html",
+  htm: "html",
+  md: "markdown",
+  markdown: "markdown",
+};
 
 /** Languages exposed in the UI language selector */
 export const SUPPORTED_LANGUAGES = [

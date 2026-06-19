@@ -421,7 +421,7 @@ export default function EditorZone() {
               />
             </div>
           ) : (
-            <CodeEditor tab={activeTab} />
+            <CodeEditor key={activeTab.id} tab={activeTab} />
           )
         ) : (
           <EmptyEditor />

@@ -9,7 +9,7 @@ import {
   fetchGenerations,
   deleteProject as apiDeleteProject,
 } from "@/lib/api";
-import { getFileName, LANG_EXT, getLanguageLabel } from "@/lib/languages";
+import { getFileName, LANG_EXT, EXT_LANG, getLanguageLabel } from "@/lib/languages";
 import { API_BASE } from "@/lib/config";
 
 // ── Re-export backend types so components have a single import source ─────────
@@ -262,8 +262,8 @@ function buildProjectTreeFromMap(projectId: string, files: Record<string, string
       const nodeId = `${projectId}/${currentPath}`;
 
       if (isLast) {
-        const ext = segment.split(".").pop() || "";
-        const cmLang = LANG_EXT[ext] ? ext : "plaintext";
+        const ext = (segment.split(".").pop() || "").toLowerCase();
+        const cmLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
         
         currentDir.children = currentDir.children || [];
         if (!currentDir.children.find(c => c.id === nodeId)) {
@@ -411,11 +411,23 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   openFile: (node) => {
     const { tabs } = get();
     const existing = tabs.find(t => t.fileId === node.id);
+    const ext = (node.name.split(".").pop() || "").toLowerCase();
+    const expectedLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
+
     if (existing) {
-      set({ activeTabId: existing.id, selectedFileId: node.id });
+      if (existing.language !== expectedLang) {
+        set(s => ({
+          tabs: s.tabs.map(t => t.id === existing.id ? { ...t, language: expectedLang } : t),
+          activeTabId: existing.id,
+          selectedFileId: node.id,
+          language: langLabel(expectedLang),
+        }));
+      } else {
+        set({ activeTabId: existing.id, selectedFileId: node.id, language: langLabel(existing.language) });
+      }
       return;
     }
-    const lang   = node.language ?? "plaintext";
+    const lang = node.language && node.language !== "plaintext" ? node.language : expectedLang;
     const newTab: Tab = {
       id:       `tab-${node.id}`,
       fileId:   node.id,
@@ -446,7 +458,18 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const { tabs } = get();
     const tab = tabs.find(t => t.id === tabId);
     if (tab) {
-      set({ activeTabId: tabId, selectedFileId: tab.fileId, language: langLabel(tab.language) });
+      const ext = (tab.fileName.split(".").pop() || "").toLowerCase();
+      const expectedLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
+      if (tab.language !== expectedLang) {
+        set(s => ({
+          tabs: s.tabs.map(t => t.id === tabId ? { ...t, language: expectedLang } : t),
+          activeTabId: tabId,
+          selectedFileId: tab.fileId,
+          language: langLabel(expectedLang),
+        }));
+      } else {
+        set({ activeTabId: tabId, selectedFileId: tab.fileId, language: langLabel(tab.language) });
+      }
     }
   },
 
@@ -604,8 +627,8 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
           };
         });
 
-        const ext = filePath.split(".").pop() || "";
-        const cmLang = LANG_EXT[ext] ? ext : "plaintext";
+        const ext = (filePath.split(".").pop() || "").toLowerCase();
+        const cmLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
         get().openFile({
           id: `${projectId}/${filePath}`,
           name: filePath.split("/").pop() || filePath,
@@ -644,7 +667,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     filesMap[filePath] = content;
 
     let securityScore = 100;
-    let findings: unknown[] = [];
+    let findings: SemgrepFinding[] = [];
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
       if (resp.ok) {
@@ -715,7 +738,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     filesMap[".sentinel/pipeline_history.json"] = JSON.stringify(pipelineEventsOnly);
 
     let securityScore = get().securityScore ?? 100;
-    let findings: unknown[] = [];
+    let findings: SemgrepFinding[] = [];
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
       if (resp.ok) {
@@ -1180,7 +1203,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const processedCode = JSON.stringify({ files: filesMap });
 
     let securityScore = 100;
-    let findings: unknown[] = [];
+    let findings: SemgrepFinding[] = [];
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
       if (resp.ok) {
@@ -1283,7 +1306,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const processedCode = JSON.stringify({ files: filesMap });
 
     let securityScore = 100;
-    let findings: unknown[] = [];
+    let findings: SemgrepFinding[] = [];
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
       if (resp.ok) {
@@ -1310,22 +1333,28 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       set(s => {
         const newTabs = s.tabs.map(t => {
           if (t.fileId === nodeId) {
+            const ext = (newName.split(".").pop() || "").toLowerCase();
+            const cmLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
             return {
               ...t,
               id: `tab-${newNodeId}`,
               fileId: newNodeId,
               fileName: newName,
+              language: cmLang,
             };
           }
           if (t.fileId.startsWith(`${nodeId}/`)) {
             const suffix = t.fileId.substring(nodeId.length);
             const nextFileId = newNodeId + suffix;
             const nextFileName = nextFileId.split("/").pop() || "";
+            const ext = (nextFileName.split(".").pop() || "").toLowerCase();
+            const cmLang = EXT_LANG[ext] ? EXT_LANG[ext] : "plaintext";
             return {
               ...t,
               id: `tab-${nextFileId}`,
               fileId: nextFileId,
               fileName: nextFileName,
+              language: cmLang,
             };
           }
           return t;

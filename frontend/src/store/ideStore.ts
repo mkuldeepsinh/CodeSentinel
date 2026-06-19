@@ -8,6 +8,7 @@ import {
   fetchProject,
   fetchGenerations,
   deleteProject as apiDeleteProject,
+  getAuthHeaders,
 } from "@/lib/api";
 import { getFileName, LANG_EXT, EXT_LANG, getLanguageLabel } from "@/lib/languages";
 import { API_BASE } from "@/lib/config";
@@ -550,7 +551,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       const resp = await fetch(`${API_BASE}/api/projects`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           id: projectId,
           name: projectId,
@@ -597,7 +598,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: JSON.stringify({ files: filesMap }),
         }),
@@ -669,7 +670,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+        headers: getAuthHeaders()
+      });
       if (resp.ok) {
         const gens = await resp.json();
         const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -683,7 +686,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: JSON.stringify({ files: filesMap }),
           security_score: securityScore,
@@ -740,7 +743,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = get().securityScore ?? 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+        headers: getAuthHeaders()
+      });
       if (resp.ok) {
         const gens = await resp.json();
         const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -758,7 +763,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: processedCode,
           security_score: securityScore,
@@ -981,7 +986,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       // Save the authoritative state of project files back to database
       fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: processedCode,
           security_score: params.securityScore,
@@ -1205,7 +1210,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+        headers: getAuthHeaders()
+      });
       if (resp.ok) {
         const gens = await resp.json();
         const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -1219,7 +1226,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: processedCode,
           security_score: securityScore,
@@ -1308,7 +1315,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+        headers: getAuthHeaders()
+      });
       if (resp.ok) {
         const gens = await resp.json();
         const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -1322,7 +1331,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           code: processedCode,
           security_score: securityScore,
@@ -1414,7 +1423,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/rename`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ new_id: newProjectId }),
       });
 

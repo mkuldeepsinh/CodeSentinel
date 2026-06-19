@@ -77,7 +77,7 @@ export interface ParsedSSE {
  *
  * We correctly parse `event:` and `data:` as pairs.
  */
-function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+export function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
   if (typeof window === "undefined") return extra;
   const token = localStorage.getItem("codesentinel_token");
   const headers: Record<string, string> = { ...extra };

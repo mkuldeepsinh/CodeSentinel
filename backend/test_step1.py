@@ -1,6 +1,6 @@
 import os
 import sys
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 # Ensure import paths resolve correctly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -37,7 +37,7 @@ def test_semgrep():
     print("Semgrep test passed!")
 
 if __name__ == "__main__":
-    load_dotenv()
+    load_dotenv(find_dotenv())
     try:
         test_e2b()
         print("-" * 40)

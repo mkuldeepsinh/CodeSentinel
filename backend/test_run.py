@@ -2,7 +2,7 @@ import os
 import sys
 import asyncio
 from unittest.mock import MagicMock
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 # Ensure import paths resolve correctly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -53,7 +53,7 @@ graph.nodes.get_llm = mock_get_llm
 from graph.graph import build_graph
 
 async def main():
-    load_dotenv()
+    load_dotenv(find_dotenv())
     
     prompt = "Write a Python script that sorts an array of numbers [5, 3, 8, 1, 2] and prints it."
     

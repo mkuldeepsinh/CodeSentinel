@@ -3,10 +3,10 @@ import sys
 import asyncio
 import json
 import uuid
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-load_dotenv()
+load_dotenv(find_dotenv())
 
 # Colors
 RESET  = "\033[0m"

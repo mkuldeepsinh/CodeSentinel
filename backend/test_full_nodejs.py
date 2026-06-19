@@ -19,10 +19,10 @@ import os
 import sys
 import asyncio
 import time
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-load_dotenv()
+load_dotenv(find_dotenv())
 
 # ── Colour helpers ────────────────────────────────────────────────
 RESET  = "\033[0m"

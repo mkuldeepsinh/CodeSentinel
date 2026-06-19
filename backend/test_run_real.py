@@ -1,7 +1,7 @@
 import os
 import sys
 import asyncio
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 # Ensure import paths resolve correctly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graph.graph import build_graph
 
 async def main():
-    load_dotenv()
+    load_dotenv(find_dotenv())
     
     if not os.environ.get("GOOGLE_API_KEY"):
         print("Error: GOOGLE_API_KEY not set in environment.")

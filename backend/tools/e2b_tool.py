@@ -3,9 +3,9 @@ import json
 import re
 from typing import Optional, List
 from e2b import Sandbox
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 # Default execution timeout in seconds.
 # Long-running servers are wrapped in a self-terminating script,

@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 from graph.graph import build_graph
 from tracing import setup_tracing, get_run_metadata, get_run_tags
@@ -26,7 +26,7 @@ from database import (
 from embeddings import get_embedding
 
 # Load environment variables first so tracing vars are available
-load_dotenv()
+load_dotenv(find_dotenv())
 
 # Setup request model
 class GenerateRequest(BaseModel):

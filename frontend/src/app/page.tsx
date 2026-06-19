@@ -248,7 +248,7 @@ function PipelineVisualizer() {
 /* ── Scroll fade-in hook ──────────────────────────────────── */
 function useFadeOnScroll() {
   useEffect(() => {
-    const els = document.querySelectorAll(".hp-fade-up");
+    const els = document.querySelectorAll(".hp-fade-up, .hp-fade-left, .hp-fade-right");
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
@@ -258,7 +258,7 @@ function useFadeOnScroll() {
           }
         });
       },
-      { threshold: 0.12 }
+      { threshold: 0.08 }
     );
     els.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
@@ -282,80 +282,92 @@ function TypingCursor() {
   );
 }
 
-/* ── Screenshots Gallery Component ────────────────────────── */
-const SCREENSHOTS = [
+/* ── Screenshots Showcase Component ───────────────────────── */
+const SCREENSHOTS_TOUR = [
   {
     id: "welcome",
-    tab: "1. Welcome",
-    src: "/Screenshot 2026-06-19 at 17.59.27.png",
-    title: "CodeSentinel Workspace",
-    sub: "Interactive coding and security assistant welcome screen",
     tag: "IDE welcome",
     tagClass: "hp-tag-ide",
+    src: "/ide-tour-1.png",
+    title: "Integrated <span>DevSecOps Workspace</span>",
+    desc: "Welcome to CodeSentinel's AI-native IDE. Start coding from a prompt or explore existing codebase structures securely from a single workspace.",
+    highlights: [
+      { label: "AI Coding Companion", sub: "Chat and prompt-to-code interfaces built-in" },
+      { label: "File Explorer", sub: "Navigate backend, frontend, and pipeline modules" },
+      { label: "Unified Console", sub: "Real-time logs and process tracking" }
+    ]
   },
   {
     id: "prompt",
-    tab: "2. Prompting",
-    src: "/Screenshot 2026-06-19 at 21.30.59.png",
-    title: "Prompt Mode and Secure Execution",
-    sub: "Describe requirements in natural language and generate secure code",
-    tag: "Prompt",
+    tag: "Prompt mode",
     tagClass: "hp-tag-code",
+    src: "/ide-tour-2.png",
+    title: "Isolated <span>Sandbox Execution</span>",
+    desc: "Describe requirements in natural language. CodeSentinel compiles, executes, and runs test pipelines inside network-isolated, ephemeral E2B microVMs.",
+    highlights: [
+      { label: "E2B microVMs", sub: "Absolute sandbox security protecting the host" },
+      { label: "Zero-config setup", sub: "Automatic node dependencies and environment resolution" },
+      { label: "Live Terminal", sub: "Real-time stdin/stdout feedback streams" }
+    ]
   },
   {
     id: "pipeline",
-    tab: "3. Pipeline Loop",
-    src: "/Screenshot 2026-06-19 at 21.38.49.png",
-    title: "LangGraph Security Triaging",
-    sub: "Evaluating code security scoring and triaging issues",
     tag: "Live Loop",
     tagClass: "hp-tag-live",
+    src: "/ide-tour-3.png",
+    title: "LangGraph <span>Security Triaging</span>",
+    desc: "LangGraph orchestrates static analysis scans automatically. The Triage Agent analyzes results to calculate security scores from 0 to 100.",
+    highlights: [
+      { label: "Static Analysis (SAST)", sub: "Integrated Semgrep rules scanning for OWASP top 10 & CWEs" },
+      { label: "Intelligent Triage", sub: "AI filtering of false positives and duplicates" },
+      { label: "Security Scorecard", sub: "Visual progression of code security metrics" }
+    ]
   },
   {
     id: "logs",
-    tab: "4. Execution Logs",
-    src: "/Screenshot 2026-06-19 at 21.39.12.png",
-    title: "E2B MicroVM Execution Logs",
-    sub: "Real-time pipeline logs surfacing compilation or execution errors",
-    tag: "Logs",
+    tag: "Audit Logs",
     tagClass: "hp-tag-scan",
+    src: "/ide-tour-4.png",
+    title: "Real-Time <span>Pipeline Trace</span>",
+    desc: "Full transparency. Watch the agents run commands, compile binaries, and check for security vulnerabilities line-by-line.",
+    highlights: [
+      { label: "Server-Sent Events", sub: "Real-time log streams directly from agents" },
+      { label: "Error Tracking", sub: "Automatic capture of stack traces and crash logs" },
+      { label: "Detailed Audit Trail", sub: "Forensic records of every pipeline execution state" }
+    ]
   },
   {
     id: "patching",
-    tab: "5. Auto-Patching",
-    src: "/Screenshot 2026-06-19 at 21.44.47.png",
-    title: "Autonomous Patching Feedback Loop",
-    sub: "Synthesizer agent rewriting vulnerable sections in the codebase",
-    tag: "Patching",
+    tag: "Auto-Patching",
     tagClass: "hp-tag-live",
+    src: "/ide-tour-5.png",
+    title: "Feedback <span>Repair Loop</span>",
+    desc: "Vulnerable code triggers the Synthesizer Agent, which rewrites code, runs it again in E2B, and performs another Semgrep scan until secure.",
+    highlights: [
+      { label: "Synthesizer Patching", sub: "Automated code repair targeting detected CVEs" },
+      { label: "Iterative Validation", sub: "Loop runs up to 3 times to achieve maximum score" },
+      { label: "Functionality Guard", sub: "Code functionality is verified on every patch" }
+    ]
   },
   {
     id: "report",
-    tab: "6. Audit Report",
-    src: "/Screenshot 2026-06-19 at 21.45.30.png",
-    title: "Comprehensive Security Audits",
-    sub: "Vulnerability triage report with precise line ranges, OWASP tags, and mitigations",
-    tag: "Audit",
+    tag: "Audit Report",
     tagClass: "hp-tag-scan",
-  },
+    src: "/ide-tour-6.png",
+    title: "Structured <span>Triage Reports</span>",
+    desc: "Comprehensive, machine-readable security reports documenting the full lifecycle of every vulnerability from detection to patch.",
+    highlights: [
+      { label: "Vulnerability Mapping", sub: "Precise line ranges, descriptions, and CWE tags" },
+      { label: "Actionable Remediation", sub: "Detailed audit documentation of the fix" },
+      { label: "Developer Export", sub: "Download clean code along with security audit trail" }
+    ]
+  }
 ];
 
-function ScreenshotsGallery() {
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const activeItem = SCREENSHOTS[activeIndex];
-
-  const handlePrev = () => {
-    setActiveIndex((prev) => (prev === 0 ? SCREENSHOTS.length - 1 : prev - 1));
-  };
-
-  const handleNext = () => {
-    setActiveIndex((prev) => (prev === SCREENSHOTS.length - 1 ? 0 : prev + 1));
-  };
-
+function ScreenshotsShowcase() {
   return (
-    <section className="hp-gallery-section hp-section">
-      <div className="hp-gallery-header hp-fade-up">
+    <section className="hp-showcase-section hp-section">
+      <div className="hp-showcase-header hp-fade-up">
         <div className="hp-eyebrow">IDE Tour</div>
         <h2 className="hp-h2">
           See <span>CodeSentinel</span> in Action
@@ -365,68 +377,62 @@ function ScreenshotsGallery() {
         </p>
       </div>
 
-      <div className="hp-gallery-tabs hp-fade-up">
-        {SCREENSHOTS.map((item, idx) => (
-          <button
-            key={item.id}
-            className={`hp-gallery-tab ${idx === activeIndex ? "active" : ""}`}
-            onClick={() => setActiveIndex(idx)}
-          >
-            {item.tab}
-          </button>
-        ))}
-      </div>
+      <div className="hp-showcase-list">
+        {SCREENSHOTS_TOUR.map((item, idx) => {
+          const isOdd = idx % 2 === 0;
+          return (
+            <div key={item.id} className="hp-showcase-row">
+              {/* Left/Right Text Details */}
+              <div className={`hp-showcase-desc-col ${isOdd ? "hp-fade-left" : "hp-fade-right"}`}>
+                <span className={`hp-showcase-tag ${item.tagClass}`}>
+                  {item.tag}
+                </span>
+                <h3
+                  className="hp-showcase-row-title"
+                  dangerouslySetInnerHTML={{ __html: item.title }}
+                />
+                <p className="hp-showcase-row-desc">{item.desc}</p>
+                
+                <div className="hp-showcase-highlights">
+                  {item.highlights.map((hl, hlIdx) => (
+                    <div key={hlIdx} className="hp-showcase-hl-item">
+                      <span className="hp-showcase-hl-icon">✓</span>
+                      <div className="hp-showcase-hl-text">
+                        <strong>{hl.label}</strong>
+                        <span>{hl.sub}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-      <div className="hp-gallery-frame hp-fade-up">
-        <div className="hp-gallery-chrome">
-          <div className="hp-gallery-chrome-dot" />
-          <div className="hp-gallery-chrome-dot" />
-          <div className="hp-gallery-chrome-dot" />
-          <div className="hp-gallery-chrome-bar">
-            <span className="hp-gallery-chrome-lock">🔒</span>
-            <span className="hp-gallery-chrome-url">
-              localhost:3000/ide?step={activeItem.id}
-            </span>
-          </div>
-        </div>
-
-        <div className="hp-gallery-img-wrap">
-          <img
-            key={activeItem.id}
-            src={activeItem.src}
-            alt={activeItem.title}
-            className="hp-gallery-img entering"
-          />
-
-          <div className="hp-gallery-caption">
-            <div>
-              <div className="hp-gallery-caption-text">{activeItem.title}</div>
-              <div className="hp-gallery-caption-sub">{activeItem.sub}</div>
+              {/* Left/Right Browser Cased Screenshot */}
+              <div className={`hp-showcase-img-col ${isOdd ? "hp-fade-right" : "hp-fade-left"}`}>
+                <div className="hp-showcase-frame">
+                  <div className="hp-showcase-chrome">
+                    <div className="hp-showcase-chrome-dot" />
+                    <div className="hp-showcase-chrome-dot" />
+                    <div className="hp-showcase-chrome-dot" />
+                    <div className="hp-showcase-chrome-bar">
+                      <span className="hp-showcase-chrome-lock">🔒</span>
+                      <span className="hp-showcase-chrome-url">
+                        localhost:3000/ide?step={item.id}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="hp-showcase-img-wrap">
+                    <img
+                      src={item.src}
+                      alt={item.tag}
+                      className="hp-showcase-img"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            <span className={`hp-gallery-caption-tag ${activeItem.tagClass}`}>
-              {activeItem.tag}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="hp-gallery-nav hp-fade-up">
-        <button className="hp-gallery-arrow" onClick={handlePrev} aria-label="Previous screenshot">
-          ←
-        </button>
-        <div className="hp-gallery-dots">
-          {SCREENSHOTS.map((_, idx) => (
-            <button
-              key={idx}
-              className={`hp-gallery-dot ${idx === activeIndex ? "active" : ""}`}
-              onClick={() => setActiveIndex(idx)}
-              aria-label={`Go to screenshot ${idx + 1}`}
-            />
-          ))}
-        </div>
-        <button className="hp-gallery-arrow" onClick={handleNext} aria-label="Next screenshot">
-          →
-        </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -618,7 +624,7 @@ export default function Home() {
         </section>
 
         {/* ── Screenshots Gallery ── */}
-        <ScreenshotsGallery />
+        <ScreenshotsShowcase />
 
         {/* ── Stats ── */}
         <div id="about" className="hp-section-full" style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--border-dim)", borderBottom: "1px solid var(--border-dim)" }}>

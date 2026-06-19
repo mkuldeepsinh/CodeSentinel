@@ -365,49 +365,118 @@ const SCREENSHOTS_TOUR = [
 ];
 
 function ScreenshotsShowcase() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [activeStep, setActiveStep] = useState(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const containerHeight = rect.height;
+      const scrolledOffset = -rect.top;
+      const viewportHeight = window.innerHeight;
+      const scrollableRange = containerHeight - viewportHeight;
+
+      if (scrolledOffset < 0) {
+        setActiveStep(0);
+        return;
+      }
+      if (scrolledOffset > scrollableRange) {
+        setActiveStep(SCREENSHOTS_TOUR.length - 1);
+        return;
+      }
+
+      const pct = scrolledOffset / scrollableRange;
+      const step = Math.min(SCREENSHOTS_TOUR.length - 1, Math.floor(pct * SCREENSHOTS_TOUR.length));
+      setActiveStep(step);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll, { passive: true });
+    
+    // Trigger initially
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, []);
+
+  const scrollToStep = (idx: number) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const containerTop = rect.top + scrollTop;
+    const containerHeight = rect.height;
+    const viewportHeight = window.innerHeight;
+    const scrollableRange = containerHeight - viewportHeight;
+    const targetScroll = containerTop + (idx / (SCREENSHOTS_TOUR.length - 1)) * scrollableRange + 10;
+
+    window.scrollTo({
+      top: targetScroll,
+      behavior: "smooth",
+    });
+  };
+
   return (
-    <section className="hp-showcase-section hp-section">
-      <div className="hp-showcase-header hp-fade-up">
-        <div className="hp-eyebrow">IDE Tour</div>
-        <h2 className="hp-h2">
-          See <span>CodeSentinel</span> in Action
-        </h2>
-        <p className="hp-lead">
-          Explore the workflow of our automated developer-security assistant.
-        </p>
-      </div>
+    <section ref={containerRef} className="hp-sticky-showcase-container">
+      <div className="hp-sticky-showcase-sticky">
+        <div className="hp-sticky-showcase-inner hp-section">
+          {/* Left Side: Navigation Indicators & Text Description Stack */}
+          <div className="hp-sticky-left-col">
+            <div className="hp-showcase-nav-track">
+              {SCREENSHOTS_TOUR.map((item, idx) => (
+                <button
+                  key={item.id}
+                  className={`hp-showcase-nav-btn ${idx === activeStep ? "active" : ""}`}
+                  onClick={() => scrollToStep(idx)}
+                  aria-label={`Go to step ${idx + 1}`}
+                >
+                  <span className="hp-showcase-nav-num">0{idx + 1}</span>
+                  <span className="hp-showcase-nav-line" />
+                </button>
+              ))}
+            </div>
 
-      <div className="hp-showcase-list">
-        {SCREENSHOTS_TOUR.map((item, idx) => {
-          const isOdd = idx % 2 === 0;
-          return (
-            <div key={item.id} className="hp-showcase-row">
-              {/* Left/Right Text Details */}
-              <div className={`hp-showcase-desc-col ${isOdd ? "hp-fade-left" : "hp-fade-right"}`}>
-                <span className={`hp-showcase-tag ${item.tagClass}`}>
-                  {item.tag}
-                </span>
-                <h3
-                  className="hp-showcase-row-title"
-                  dangerouslySetInnerHTML={{ __html: item.title }}
-                />
-                <p className="hp-showcase-row-desc">{item.desc}</p>
-                
-                <div className="hp-showcase-highlights">
-                  {item.highlights.map((hl, hlIdx) => (
-                    <div key={hlIdx} className="hp-showcase-hl-item">
-                      <span className="hp-showcase-hl-icon">✓</span>
-                      <div className="hp-showcase-hl-text">
-                        <strong>{hl.label}</strong>
-                        <span>{hl.sub}</span>
+            <div className="hp-sticky-desc-stack">
+              {SCREENSHOTS_TOUR.map((item, idx) => (
+                <div
+                  key={item.id}
+                  className={`hp-sticky-desc-item ${idx === activeStep ? "active" : ""}`}
+                >
+                  <span className={`hp-showcase-tag ${item.tagClass}`}>
+                    {item.tag}
+                  </span>
+                  <h3
+                    className="hp-showcase-row-title"
+                    dangerouslySetInnerHTML={{ __html: item.title }}
+                  />
+                  <p className="hp-showcase-row-desc">{item.desc}</p>
+                  
+                  <div className="hp-showcase-highlights">
+                    {item.highlights.map((hl, hlIdx) => (
+                      <div key={hlIdx} className="hp-showcase-hl-item">
+                        <span className="hp-showcase-hl-icon">✓</span>
+                        <div className="hp-showcase-hl-text">
+                          <strong>{hl.label}</strong>
+                          <span>{hl.sub}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ))}
+            </div>
+          </div>
 
-              {/* Left/Right Browser Cased Screenshot */}
-              <div className={`hp-showcase-img-col ${isOdd ? "hp-fade-right" : "hp-fade-left"}`}>
+          {/* Right Side: Pinned Images Stack */}
+          <div className="hp-sticky-img-stack">
+            {SCREENSHOTS_TOUR.map((item, idx) => (
+              <div
+                key={item.id}
+                className={`hp-sticky-img-frame ${idx === activeStep ? "active" : ""}`}
+              >
                 <div className="hp-showcase-frame">
                   <div className="hp-showcase-chrome">
                     <div className="hp-showcase-chrome-dot" />
@@ -430,9 +499,9 @@ function ScreenshotsShowcase() {
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -441,6 +510,18 @@ function ScreenshotsShowcase() {
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Home() {
   useFadeOnScroll();
+
+  useEffect(() => {
+    // Enable page scrolling dynamically on mount
+    document.documentElement.classList.add("homepage-active");
+    document.body.classList.add("homepage-active");
+
+    return () => {
+      // Disable scrolling again on unmount (e.g. when navigating to /ide)
+      document.documentElement.classList.remove("homepage-active");
+      document.body.classList.remove("homepage-active");
+    };
+  }, []);
 
   return (
     <main className="homepage">

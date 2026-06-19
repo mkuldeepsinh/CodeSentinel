@@ -786,3 +786,21 @@ main {
   font-size: 13px;
   color: var(--text-disabled);
 }
+
+/* ── Homepage scroll override ── */
+html.homepage-active,
+html:has(.homepage) {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+}
+
+html.homepage-active body,
+html.homepage-active main,
+html.homepage-active .hp-content,
+html:has(.homepage) body,
+html:has(.homepage) main,
+html:has(.homepage) .hp-content {
+  overflow: visible !important;
+  height: auto !important;
+}

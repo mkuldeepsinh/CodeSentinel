@@ -908,7 +908,7 @@ export default function BottomPanel() {
                   <button
                     onClick={() => handleConfirmChoice("edit")}
                     style={{
-                      background: "rgba(122, 162, 247, 0.1)", border: "1px solid var(--accent-blue)", borderRadius: 3,
+                      background: "rgba(200, 122, 83, 0.1)", border: "1px solid var(--accent-blue)", borderRadius: 3,
                       color: "var(--accent-blue)", fontSize: 11, padding: "6px 14px", cursor: "pointer",
                       fontWeight: 600, fontFamily: "var(--font-mono)",
                     }}
@@ -947,7 +947,7 @@ export default function BottomPanel() {
                   onClick={() => setChatMode("pipeline")}
                   disabled={isStreaming}
                   style={{
-                    background: chatMode === "pipeline" ? "rgba(122, 162, 247, 0.15)" : "transparent",
+                    background: chatMode === "pipeline" ? "rgba(200, 122, 83, 0.15)" : "transparent",
                     border: "none",
                     borderRadius: 3,
                     color: chatMode === "pipeline" ? "var(--accent-blue)" : "var(--text-muted)",
@@ -966,7 +966,7 @@ export default function BottomPanel() {
                   onClick={() => setChatMode("chat")}
                   disabled={isStreaming}
                   style={{
-                    background: chatMode === "chat" ? "rgba(158, 206, 106, 0.15)" : "transparent",
+                    background: chatMode === "chat" ? "rgba(77, 140, 96, 0.15)" : "transparent",
                     border: "none",
                     borderRadius: 3,
                     color: chatMode === "chat" ? "var(--accent-green)" : "var(--text-muted)",
@@ -1029,7 +1029,7 @@ export default function BottomPanel() {
                 type="submit"
                 disabled={isStreaming || !currentPrompt.trim()}
                 style={{
-                  background:    currentPrompt.trim() && !isStreaming ? "rgba(158, 206, 106, 0.12)" : "none",
+                  background:    currentPrompt.trim() && !isStreaming ? "rgba(77, 140, 96, 0.12)" : "none",
                   border:        "1px solid",
                   borderColor:   currentPrompt.trim() && !isStreaming ? "var(--accent-green)" : "var(--border-subtle)",
                   borderRadius:  3,

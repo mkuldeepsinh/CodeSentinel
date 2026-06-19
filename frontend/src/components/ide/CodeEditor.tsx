@@ -35,7 +35,7 @@ const editorTheme = EditorView.theme({
     fontFamily: "var(--font-jetbrains, 'JetBrains Mono', monospace)",
     fontSize: "13px",
     padding: "0 0 100px 0",
-    caretColor: "#7aa2f7",
+    caretColor: "var(--accent-blue)",
   },
   ".cm-gutters": {
     backgroundColor: "var(--bg-base) !important",
@@ -51,25 +51,25 @@ const editorTheme = EditorView.theme({
     lineHeight: "1.6",
   },
   ".cm-activeLineGutter": {
-    backgroundColor: "rgba(122, 162, 247, 0.08) !important",
+    backgroundColor: "rgba(200, 122, 83, 0.08) !important",
     color: "var(--text-secondary) !important",
   },
   ".cm-activeLine": {
-    backgroundColor: "rgba(122, 162, 247, 0.04) !important",
+    backgroundColor: "rgba(200, 122, 83, 0.04) !important",
   },
   ".cm-cursor": {
-    borderLeftColor: "#7aa2f7",
+    borderLeftColor: "var(--accent-blue)",
     borderLeftWidth: "2px",
   },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-    backgroundColor: "rgba(54, 74, 130, 0.6) !important",
+    backgroundColor: "var(--bg-selection) !important",
   },
   ".cm-focused .cm-selectionBackground": {
-    backgroundColor: "rgba(54, 74, 130, 0.6) !important",
+    backgroundColor: "var(--bg-selection) !important",
   },
   ".cm-matchingBracket": {
-    backgroundColor: "rgba(122, 162, 247, 0.15)",
-    outline: "1px solid rgba(122, 162, 247, 0.4)",
+    backgroundColor: "rgba(200, 122, 83, 0.15)",
+    outline: "1px solid rgba(200, 122, 83, 0.4)",
     borderRadius: "2px",
   },
   ".cm-scroller": {

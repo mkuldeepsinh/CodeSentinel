@@ -7,46 +7,46 @@
    ═══════════════════════════════════════════════════════════════ */
 :root {
   /* ── Base surfaces ── */
-  --bg-base:        #000000;  /* deepest background / editor background */
-  --bg-surface:     #181818;  /* main panels, sidebar background */
-  --bg-elevated:    #181818;  /* elevated cards, sidebar */
-  --bg-overlay:     #2a2a2a;  /* hover states, subtle elements */
-  --bg-highlight:   #2d2d2d;  /* active selections */
-  --bg-selection:   #264f78;  /* text selection */
+  --bg-base:        #0a0909;  /* deepest background / editor background (Midnight Basalt) */
+  --bg-surface:     #110f0f;  /* main panels, sidebar background (Graphite Basalt) */
+  --bg-elevated:    #171515;  /* elevated cards, sidebar (Warm Charcoal) */
+  --bg-overlay:     #252121;  /* hover states, subtle elements (Basalt Hover) */
+  --bg-highlight:   #2d2929;  /* active selections (Active tab) */
+  --bg-selection:   #4a3a35;  /* text selection (Warm terracotta clay) */
 
   /* ── Borders ── */
-  --border-subtle:  #2b2b2b;
-  --border-default: #2d2d2d;
-  --border-strong:  #3c3c3c;
+  --border-subtle:  #181515;
+  --border-default: #282323;
+  --border-strong:  #383131;
 
-  /* ── Tokyo Night accent palette ── */
-  --accent-blue:    #7aa2f7;
-  --accent-cyan:    #7dcfff;
-  --accent-green:   #9ece6a;
-  --accent-yellow:  #e0af68;
-  --accent-orange:  #ff9e64;
-  --accent-red:     #f7768e;
-  --accent-purple:  #bb9af7;
-  --accent-pink:    #ff007c;
-  --accent-teal:    #73daca;
+  /* ── Premium Basalt & Terracotta accent palette ── */
+  --accent-blue:    #c87a53;  /* Muted clay terracotta / Brand accent */
+  --accent-cyan:    #df9a78;  /* Muted copper clay */
+  --accent-green:   #a4b396;  /* Professional sage/olive success green */
+  --accent-yellow:  #cda250;  /* Warm refined brass gold */
+  --accent-orange:  #d38c5d;  /* Copper bronze */
+  --accent-red:     #c2574e;  /* Soft refined crimson terracotta */
+  --accent-purple:  #aa887c;  /* Warm sandstone purple */
+  --accent-pink:    #b47b74;  /* Warm sandstone rose */
+  --accent-teal:    #94a39f;  /* Warm slate-teal */
 
   /* ── Text hierarchy ── */
-  --text-primary:   #c0caf5;
-  --text-secondary: #9aa5ce;
-  --text-muted:     #565f89;
-  --text-disabled:  #444b6a;
-  --text-bright:    #ffffff;
+  --text-primary:   #f1ede9;  /* Bright warm sandstone white */
+  --text-secondary: #d5cdcb;  /* Crisp light warm sand */
+  --text-muted:     #9e938e;  /* Clearly visible warm grey */
+  --text-disabled:  #6e635f;  /* Visible dark warm grey */
+  --text-bright:    #ffffff;  /* Polished crisp white */
 
   /* ── Semantic colors ── */
-  --status-green:   #9ece6a;
-  --status-yellow:  #e0af68;
-  --status-red:     #f7768e;
-  --status-blue:    #7aa2f7;
+  --status-green:   #a4b396;
+  --status-yellow:  #cda250;
+  --status-red:     #c2574e;
+  --status-blue:    #c87a53;
 
   /* ── Glassmorphism tokens ── */
-  --glass-bg:       rgba(26, 27, 38, 0.75);
-  --glass-border:   rgba(122, 162, 247, 0.12);
-  --glass-blur:     12px;
+  --glass-bg:       rgba(17, 15, 15, 0.82);
+  --glass-border:   rgba(200, 122, 83, 0.06);
+  --glass-blur:     16px;
 
   /* ── Activity Bar ── */
   --actbar-width:   48px;
@@ -86,9 +86,9 @@ html {
   height: 100%;
   overflow: hidden;
   font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+  text-rendering: optimizeSpeed;
 }
 
 body {
@@ -255,7 +255,7 @@ main {
 }
 .actbar-btn.active {
   color: var(--accent-blue);
-  background-color: rgba(122, 162, 247, 0.10);
+  background-color: rgba(200, 122, 83, 0.10);
 }
 .actbar-btn.active::before {
   content: "";
@@ -312,7 +312,7 @@ main {
   color: var(--text-primary);
 }
 .tree-item.selected {
-  background-color: rgba(122, 162, 247, 0.12);
+  background-color: rgba(200, 122, 83, 0.12);
   color: var(--text-bright);
 }
 .tree-item.folder > .tree-item-name {
@@ -506,8 +506,8 @@ main {
   flex-direction: column;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.6;
   background-color: var(--bg-base);
 }
 
@@ -518,8 +518,8 @@ main {
   gap: 8px;
   padding: 2px 0;
   font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.6;
   animation: fadeSlideUp 0.08s ease;
   word-break: break-all;
   width: 100%;
@@ -648,7 +648,7 @@ main {
   border: 1px solid;
 }
 .pipeline-node.idle     { background: rgba(86,95,137,0.15); border-color: var(--text-disabled); color: var(--text-muted); }
-.pipeline-node.running  { background: rgba(122,162,247,0.15); border-color: var(--accent-blue); color: var(--accent-blue); }
+.pipeline-node.running  { background: rgba(200, 122, 83, 0.15); border-color: var(--accent-blue); color: var(--accent-blue); }
 .pipeline-node.done     { background: rgba(158,206,106,0.15); border-color: var(--accent-green); color: var(--accent-green); }
 .pipeline-node.error    { background: rgba(247,118,142,0.15); border-color: var(--accent-red); color: var(--accent-red); }
 .pipeline-node.warning  { background: rgba(224,175,104,0.15); border-color: var(--accent-yellow); color: var(--accent-yellow); }
@@ -679,15 +679,15 @@ main {
 /* ═══════════════════════════════════════════════════════════════
    SYNTAX HIGHLIGHT TOKENS — Token Night theme overrides
    ═══════════════════════════════════════════════════════════════ */
-.tok-keyword   { color: #bb9af7; }
-.tok-string    { color: #9ece6a; }
-.tok-comment   { color: #565f89; font-style: italic; }
-.tok-function  { color: #7aa2f7; }
-.tok-number    { color: #ff9e64; }
-.tok-operator  { color: #89ddff; }
-.tok-type      { color: #2ac3de; }
-.tok-variable  { color: #c0caf5; }
-.tok-property  { color: #73daca; }
+.tok-keyword   { color: #cda250; }
+.tok-string    { color: #a4b396; }
+.tok-comment   { color: #7a7069; font-style: italic; }
+.tok-function  { color: #c87a53; }
+.tok-number    { color: #d38c5d; }
+.tok-operator  { color: #df9a78; }
+.tok-type      { color: #df9a78; }
+.tok-variable  { color: #e3deda; }
+.tok-property  { color: #df9a78; }
 
 /* ═══════════════════════════════════════════════════════════════
    MICRO-ANIMATIONS & TRANSITIONS
@@ -709,7 +709,7 @@ main {
 }
 
 /* ── Glow effect for active pipeline node ── */
-.glow-blue { box-shadow: 0 0 12px rgba(122, 162, 247, 0.3); }
+.glow-blue { box-shadow: 0 0 12px rgba(200, 122, 83, 0.3); }
 .glow-green { box-shadow: 0 0 12px rgba(158, 206, 106, 0.3); }
 .glow-red   { box-shadow: 0 0 12px rgba(247, 118, 142, 0.3); }
 
@@ -721,7 +721,7 @@ main {
 
 /* ─── Focus rings ─── */
 :focus-visible {
-  outline: 2px solid rgba(122, 162, 247, 0.5);
+  outline: 2px solid rgba(200, 122, 83, 0.5);
   outline-offset: 2px;
 }
 

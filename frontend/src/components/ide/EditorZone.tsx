@@ -9,15 +9,15 @@ import CodeEditor from "./CodeEditor";
 // ── Language dot color ────────────────────────────────────────────────────────
 function langColor(lang: string) {
   const map: Record<string, string> = {
-    python:     "#7aa2f7",
-    typescript: "#2ac3de",
-    javascript: "#e0af68",
-    json:       "#9ece6a",
-    css:        "#bb9af7",
-    html:       "#ff9e64",
-    markdown:   "#7dcfff",
-    go:         "#73daca",
-    rust:       "#ff9e64",
+    python:     "var(--accent-blue)",
+    typescript: "var(--accent-cyan)",
+    javascript: "var(--accent-yellow)",
+    json:       "var(--accent-green)",
+    css:        "var(--accent-purple)",
+    html:       "var(--accent-orange)",
+    markdown:   "var(--accent-teal)",
+    go:         "var(--accent-teal)",
+    rust:       "var(--accent-orange)",
   };
   return map[lang.toLowerCase()] ?? "var(--text-muted)";
 }

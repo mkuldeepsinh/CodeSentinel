@@ -442,7 +442,7 @@ function ScreenshotsShowcase() {
       }
 
       const pct = scrolledOffset / scrollableRange;
-      const step = Math.min(SCREENSHOTS_TOUR.length - 1, Math.floor(pct * SCREENSHOTS_TOUR.length));
+      const step = Math.min(SCREENSHOTS_TOUR.length - 1, Math.max(0, Math.round(pct * (SCREENSHOTS_TOUR.length - 1))));
       setActiveStep(step);
     };
 
@@ -588,13 +588,8 @@ export default function Home() {
       <div className="hp-content">
         {/* ── Navbar ── */}
         <nav className="hp-nav">
-          <Link href="/" className="hp-nav-logo">
-            <div className="hp-nav-logo-icon">
-              <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 1L1 4v4c0 3.5 2.9 6.8 7 8 4.1-1.2 7-4.5 7-8V4L8 1z" />
-              </svg>
-            </div>
-            Code<span className="hp-nav-accent">Sentinel</span>
+          <Link href="/" className="hp-nav-logo-text">
+            CodeSentinel
           </Link>
 
           <ul className="hp-nav-links">
@@ -724,6 +719,9 @@ export default function Home() {
           </div>
         </div>
 
+        {/* ── Screenshots Gallery ── */}
+        <ScreenshotsShowcase />
+
         {/* ── Features ── */}
         <section id="features" className="hp-section">
           <div className="hp-fade-up">
@@ -752,9 +750,6 @@ export default function Home() {
             ))}
           </div>
         </section>
-
-        {/* ── Screenshots Gallery ── */}
-        <ScreenshotsShowcase />
 
         {/* ── Stats ── */}
         <div id="about" className="hp-section-full" style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--border-dim)", borderBottom: "1px solid var(--border-dim)" }}>

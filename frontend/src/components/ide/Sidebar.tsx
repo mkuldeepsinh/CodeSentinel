@@ -27,25 +27,25 @@ function FileIcon({ name, language }: { name: string; language?: string }) {
   const style = { flexShrink: 0 };
 
   if (lang === "python"     || ext === "py")
-    return <FileCode size={14} style={{ ...style, color: "#7aa2f7" }} />;
+    return <FileCode size={14} style={{ ...style, color: "var(--accent-blue)" }} />;
   if (lang === "typescript" || ext === "tsx" || ext === "ts")
-    return <FileCode size={14} style={{ ...style, color: "#2ac3de" }} />;
+    return <FileCode size={14} style={{ ...style, color: "var(--accent-cyan)" }} />;
   if (lang === "javascript" || ext === "js" || ext === "jsx")
-    return <FileCode size={14} style={{ ...style, color: "#e0af68" }} />;
+    return <FileCode size={14} style={{ ...style, color: "var(--accent-yellow)" }} />;
   if (lang === "json"  || ext === "json")
-    return <FileJson size={14} style={{ ...style, color: "#9ece6a" }} />;
+    return <FileJson size={14} style={{ ...style, color: "var(--accent-green)" }} />;
   if (lang === "go"    || ext === "go")
-    return <FileCode size={14} style={{ ...style, color: "#73daca" }} />;
+    return <FileCode size={14} style={{ ...style, color: "var(--accent-teal)" }} />;
   if (lang === "rust"  || ext === "rs")
-    return <FileCode size={14} style={{ ...style, color: "#ff9e64" }} />;
+    return <FileCode size={14} style={{ ...style, color: "var(--accent-orange)" }} />;
   if (ext === "md"     || ext === "mdx")
-    return <FileText size={14} style={{ ...style, color: "#7dcfff" }} />;
+    return <FileText size={14} style={{ ...style, color: "var(--accent-teal)" }} />;
   if (ext === "css"    || ext === "scss")
-    return <File     size={14} style={{ ...style, color: "#bb9af7" }} />;
+    return <File     size={14} style={{ ...style, color: "var(--accent-purple)" }} />;
   if (ext === "sh"     || ext === "bash")
-    return <File     size={14} style={{ ...style, color: "#9ece6a" }} />;
+    return <File     size={14} style={{ ...style, color: "var(--accent-green)" }} />;
   if (name.startsWith(".env"))
-    return <File     size={14} style={{ ...style, color: "#ff9e64" }} />;
+    return <File     size={14} style={{ ...style, color: "var(--accent-orange)" }} />;
   return   <File     size={14} style={{ ...style, color: "var(--text-muted)" }} />;
 }
 
@@ -89,8 +89,8 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
 
         {isFolder ? (
           isExpanded
-            ? <FolderOpen size={14} style={{ color: isSentinel ? "var(--text-disabled)" : "#e0af68", flexShrink: 0 }} />
-            : <Folder     size={14} style={{ color: isSentinel ? "var(--text-disabled)" : "#e0af68", flexShrink: 0 }} />
+            ? <FolderOpen size={14} style={{ color: isSentinel ? "var(--text-disabled)" : "var(--accent-yellow)", flexShrink: 0 }} />
+            : <Folder     size={14} style={{ color: isSentinel ? "var(--text-disabled)" : "var(--accent-yellow)", flexShrink: 0 }} />
         ) : (
           <FileIcon name={node.name} language={node.language} />
         )}
@@ -197,7 +197,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
                 color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
                 display: "flex", alignItems: "center",
               }}
-              onMouseEnter={e => e.currentTarget.style.color = "#f7768e"}
+              onMouseEnter={e => e.currentTarget.style.color = "var(--accent-red)"}
               onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
             >
               <Trash2 size={11} />
@@ -274,15 +274,15 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
           alignItems:      "center",
           justifyContent:  "space-between",
           padding:         "5px 12px",
-          background:      "rgba(247,118,142,0.08)",
-          borderLeft:      "2px solid #f7768e",
+          background:      "rgba(217, 83, 79, 0.08)",
+          borderLeft:      "2px solid var(--accent-red)",
           userSelect:      "none",
           minHeight:       32,
         }}
       >
         <span style={{
           fontSize: 11,
-          color: "#f7768e",
+          color: "var(--accent-red)",
           fontWeight: 600,
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -305,7 +305,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
             }}
             disabled={loading}
             style={{
-              background: "#f7768e",
+              background: "var(--accent-red)",
               color: "#fff",
               border: "none",
               borderRadius: 3,
@@ -352,14 +352,14 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
         gap:           6,
         padding:       "5px 12px",
         cursor:        isActive ? "default" : "pointer",
-        background:    isActive ? "rgba(122,162,247,0.08)" : "transparent",
+        background:    isActive ? "rgba(200, 122, 83, 0.08)" : "transparent",
         borderLeft:    isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
         transition:    "background 0.1s ease",
         userSelect:    "none",
       }}
     >
       <Folder size={13} style={{
-        color:    isActive ? "var(--accent-blue)" : "#e0af68",
+        color:    isActive ? "var(--accent-blue)" : "var(--accent-yellow)",
         flexShrink: 0,
       }} />
 
@@ -496,8 +496,8 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
                   transition: "color 0.1s, background 0.1s",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "#f7768e";
-                  e.currentTarget.style.background = "rgba(247,118,142,0.1)";
+                  e.currentTarget.style.color = "var(--accent-red)";
+                  e.currentTarget.style.background = "rgba(217, 83, 79, 0.1)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.color = "var(--text-muted)";
@@ -652,7 +652,7 @@ export default function Sidebar() {
             {isCreatingProject && (
               <form onSubmit={handleProjectSubmit} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "5px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Folder size={13} style={{ color: "#e0af68", flexShrink: 0 }} />
+                  <Folder size={13} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} />
                   <input
                     id="new-project-input"
                     placeholder="project-name"
@@ -702,8 +702,8 @@ export default function Sidebar() {
                   <button
                     type="submit"
                     style={{
-                      background: "rgba(122, 162, 247, 0.15)",
-                      border: "1px solid rgba(122, 162, 247, 0.3)",
+                      background: "rgba(200, 122, 83, 0.15)",
+                      border: "1px solid rgba(200, 122, 83, 0.3)",
                       borderRadius: 4,
                       color: "var(--accent-blue)",
                       fontSize: 10,

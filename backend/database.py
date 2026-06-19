@@ -446,3 +446,58 @@ def find_similar_generation(target_embedding: List[float], threshold: float = 0.
                 continue
                 
         return best_match
+
+
+def rename_project(old_id: str, new_id: str) -> bool:
+    """
+    Renames a project ID in the database and updates associated generations.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT name, prompt, language FROM projects WHERE id = %s;", (old_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        return False
+                    name, prompt, language = row
+                    new_name = name.replace(old_id.replace("project_", ""), new_id.replace("project_", ""))
+                    
+                    cur.execute(
+                        "INSERT INTO projects (id, name, prompt, language) VALUES (%s, %s, %s, %s);",
+                        (new_id, new_name, prompt, language)
+                    )
+                    cur.execute(
+                        "UPDATE generations SET project_id = %s WHERE project_id = %s;",
+                        (new_id, old_id)
+                    )
+                    cur.execute("DELETE FROM projects WHERE id = %s;", (old_id,))
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL rename failed ({e})")
+            return False
+
+    # SQLite Fallback
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT name, prompt, language FROM projects WHERE id = ?;", (old_id,))
+        row = cur.fetchone()
+        if not row:
+            return False
+        name, prompt, language = row
+        new_name = name.replace(old_id.replace("project_", ""), new_id.replace("project_", ""))
+
+        cur.execute("PRAGMA foreign_keys = OFF;")
+        cur.execute(
+            "INSERT INTO projects (id, name, prompt, language) VALUES (?, ?, ?, ?);",
+            (new_id, new_name, prompt, language)
+        )
+        cur.execute(
+            "UPDATE generations SET project_id = ? WHERE project_id = ?;",
+            (new_id, old_id)
+        )
+        cur.execute("DELETE FROM projects WHERE id = ?;", (old_id,))
+        cur.execute("PRAGMA foreign_keys = ON;")
+        conn.commit()
+    return True

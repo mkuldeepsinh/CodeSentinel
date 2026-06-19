@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Clock,
   Trash2,
+  Edit2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -57,6 +58,12 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const isSentinel = node.name === ".sentinel";
   const paddingLeft = 8 + depth * 14;
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(node.name);
+  const [isHovered, setIsHovered] = useState(false);
+
+  const isSystemNode = isSentinel || node.name === "security_report.md" || node.id.includes("/.sentinel/") || node.isLive;
+
   const handleClick = () => {
     if (isFolder) toggleFolder(node.id);
     else          openFile(node);
@@ -69,6 +76,8 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
         className={`tree-item ${isFolder ? "folder" : ""} ${isSelected ? "selected" : ""}`}
         style={{ paddingLeft, opacity: isSentinel ? 0.5 : 1 }}
         onClick={handleClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
         {isFolder ? (
           <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>
@@ -86,9 +95,56 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
           <FileIcon name={node.name} language={node.language} />
         )}
 
-        <span className="tree-item-name" style={{ overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>
-          {node.name}
-        </span>
+        {isEditing ? (
+          <input
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                setIsEditing(false);
+                if (editName.trim() && editName.trim() !== node.name) {
+                  const { activeProjectId, renameNode } = useIDEStore.getState();
+                  if (activeProjectId) {
+                    await renameNode(activeProjectId, node.id, editName.trim());
+                  }
+                }
+              } else if (e.key === "Escape") {
+                e.stopPropagation();
+                setIsEditing(false);
+                setEditName(node.name);
+              }
+            }}
+            onBlur={async () => {
+              setIsEditing(false);
+              if (editName.trim() && editName.trim() !== node.name) {
+                const { activeProjectId, renameNode } = useIDEStore.getState();
+                if (activeProjectId) {
+                  await renameNode(activeProjectId, node.id, editName.trim());
+                }
+              } else {
+                setEditName(node.name);
+              }
+            }}
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "var(--bg-overlay)",
+              border: "1px solid var(--accent-blue)",
+              borderRadius: 3,
+              color: "var(--text-primary)",
+              fontSize: 12,
+              padding: "0px 4px",
+              outline: "none",
+              width: "110px",
+              fontFamily: "var(--font-mono)",
+            }}
+            autoFocus
+          />
+        ) : (
+          <span className="tree-item-name" style={{ overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>
+            {node.name}
+          </span>
+        )}
 
         {/* Live badge on the live-preview tab's tree entry */}
         {node.isLive && (
@@ -104,6 +160,49 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
           }}>
             LIVE
           </span>
+        )}
+
+        {/* Action icons on hover */}
+        {isHovered && !isSystemNode && !isEditing && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", paddingRight: 4, flexShrink: 0 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditing(true);
+              }}
+              title="Rename"
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                display: "flex", alignItems: "center",
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+              onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+            >
+              <Edit2 size={11} />
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (confirm(`Are you sure you want to delete ${node.name}?`)) {
+                  const { activeProjectId, deleteNode } = useIDEStore.getState();
+                  if (activeProjectId) {
+                    await deleteNode(activeProjectId, node.id);
+                  }
+                }
+              }}
+              title="Delete"
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                display: "flex", alignItems: "center",
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = "#f7768e"}
+              onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -134,12 +233,13 @@ function ScoreChip({ score }: { score: number }) {
   );
 }
 
-// ── Project List Item ─────────────────────────────────────────────────────────
 function ProjectItem({ project, isActive }: { project: Project; isActive: boolean }) {
-  const { switchProject, fileTree, deleteProject } = useIDEStore();
+  const { switchProject, fileTree, deleteProject, renameProject } = useIDEStore();
   const [loading, setLoading] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(project.id.replace("project_", ""));
 
   // Try to find the best score stored in the file tree for this project
   const projectNode = fileTree.find(n => n.id === project.id);
@@ -154,7 +254,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   }
 
   const handleClick = async () => {
-    if (isActive || loading) return;
+    if (isActive || loading || isEditing) return;
     setLoading(true);
     try {
       await switchProject(project.id);
@@ -264,17 +364,68 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
       }} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 12,
-          color:    isActive ? "var(--text-primary)" : "var(--text-secondary)",
-          fontWeight: isActive ? 600 : 400,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          fontFamily: "var(--font-mono)",
-        }}>
-          {shortId}
-        </div>
+        {isEditing ? (
+          <input
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                setIsEditing(false);
+                if (editName.trim() && editName.trim() !== project.id.replace("project_", "")) {
+                  setLoading(true);
+                  try {
+                    await renameProject(project.id, editName.trim());
+                  } finally {
+                    setLoading(false);
+                  }
+                }
+              } else if (e.key === "Escape") {
+                e.stopPropagation();
+                setIsEditing(false);
+                setEditName(project.id.replace("project_", ""));
+              }
+            }}
+            onBlur={async () => {
+              setIsEditing(false);
+              if (editName.trim() && editName.trim() !== project.id.replace("project_", "")) {
+                setLoading(true);
+                try {
+                  await renameProject(project.id, editName.trim());
+                } finally {
+                  setLoading(false);
+                }
+              } else {
+                setEditName(project.id.replace("project_", ""));
+              }
+            }}
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "var(--bg-overlay)",
+              border: "1px solid var(--accent-blue)",
+              borderRadius: 4,
+              color: "var(--text-primary)",
+              fontSize: 12,
+              padding: "1px 6px",
+              outline: "none",
+              width: "85%",
+              fontFamily: "var(--font-mono)",
+            }}
+            autoFocus
+          />
+        ) : (
+          <div style={{
+            fontSize: 12,
+            color:    isActive ? "var(--text-primary)" : "var(--text-secondary)",
+            fontWeight: isActive ? 600 : 400,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontFamily: "var(--font-mono)",
+          }}>
+            {shortId}
+          </div>
+        )}
         <div style={{ fontSize: 10, color: "var(--text-disabled)", display: "flex", gap: 4, alignItems: "center" }}>
           <span style={{
             padding: "0 4px",
@@ -294,36 +445,68 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
       ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {topScore !== null && <ScoreChip score={topScore} />}
-          {isHovered && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setConfirmDelete(true);
-              }}
-              title="Delete project"
-              style={{
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                padding: 2,
-                borderRadius: 3,
-                color: "var(--text-muted)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "color 0.1s, background 0.1s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "#f7768e";
-                e.currentTarget.style.background = "rgba(247,118,142,0.1)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <Trash2 size={12} />
-            </button>
+          {isHovered && !isEditing && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditing(true);
+                }}
+                title="Rename project"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  borderRadius: 3,
+                  color: "var(--text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 0.1s, background 0.1s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--accent-blue)";
+                  e.currentTarget.style.background = "rgba(122,162,247,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <Edit2 size={12} />
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDelete(true);
+                }}
+                title="Delete project"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 2,
+                  borderRadius: 3,
+                  color: "var(--text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 0.1s, background 0.1s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#f7768e";
+                  e.currentTarget.style.background = "rgba(247,118,142,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <Trash2 size={12} />
+              </button>
+            </>
           )}
         </div>
       )}

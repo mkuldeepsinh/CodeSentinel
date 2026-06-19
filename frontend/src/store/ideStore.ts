@@ -150,6 +150,9 @@ interface IDEStore {
   updateLiveCode:      (code: string, language: string) => void;
   switchProject:       (projectId: string) => Promise<void>;
   deleteProject:       (projectId: string) => Promise<void>;
+  deleteNode:          (projectId: string, nodeId: string) => Promise<void>;
+  renameNode:          (projectId: string, nodeId: string, newName: string) => Promise<void>;
+  renameProject:       (projectId: string, newName: string) => Promise<void>;
   appendAuditSnapshot: (snapshot: AuditSnapshot) => void;
   setAuditTrail:       (trail: AuditSnapshot[]) => void;
   setScanRequest:      (req: { code: string; language: string } | null) => void;
@@ -1150,6 +1153,313 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       }
     } catch (err) {
       console.error("Error deleting project:", err);
+    }
+  },
+
+  deleteNode: async (projectId: string, nodeId: string) => {
+    const { fileTree } = get();
+    const projectNode = fileTree.find(n => n.id === projectId);
+    if (!projectNode) return;
+
+    const filesMap: Record<string, string> = {};
+    const isTargetFile = (id: string) => id === nodeId;
+    const isTargetFolder = (id: string) => id.startsWith(`${nodeId}/`);
+
+    const extractFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${projectId}/`, "");
+        if (!isTargetFile(node.id) && !isTargetFolder(node.id)) {
+          filesMap[relativePath] = node.content ?? "";
+        }
+      } else if (node.children) {
+        node.children.forEach(extractFiles);
+      }
+    };
+    extractFiles(projectNode);
+
+    const processedCode = JSON.stringify({ files: filesMap });
+
+    let securityScore = 100;
+    let findings: unknown[] = [];
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      if (resp.ok) {
+        const gens = await resp.json();
+        const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        if (latest) {
+          securityScore = latest.security_score;
+          findings = latest.findings ?? [];
+        }
+      }
+    } catch {}
+
+    try {
+      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: processedCode,
+          security_score: securityScore,
+          findings: findings,
+        }),
+      });
+
+      set(s => {
+        const newTabs = s.tabs.filter(t => t.fileId !== nodeId && !t.fileId.startsWith(`${nodeId}/`));
+        let newActiveTabId = s.activeTabId;
+        if (newActiveTabId === `tab-${nodeId}` || (newActiveTabId && newActiveTabId.startsWith(`tab-${nodeId}/`))) {
+          newActiveTabId = newTabs[0]?.id ?? null;
+        }
+
+        const updatedParams = {
+          projectId,
+          prompt: s.currentPrompt || "Manual File Delete",
+          language: s.liveLanguage || "javascript",
+          finalCode: processedCode,
+          auditTrail: s.auditTrail,
+          scoreHistory: s.scoreHistory,
+          securityScore: securityScore,
+          verdict: securityScore === 100 ? "clean" : "fix",
+          reasoning: "",
+          findings,
+        };
+        const newProjectNode = buildProjectTree(updatedParams);
+        const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
+        const newTree = existingIdx >= 0
+          ? s.fileTree.map((n, i) => i === existingIdx ? newProjectNode : n)
+          : [...s.fileTree, newProjectNode];
+
+        let newSelectedFileId = s.selectedFileId;
+        if (newSelectedFileId === nodeId || (newSelectedFileId && newSelectedFileId.startsWith(`${nodeId}/`))) {
+          newSelectedFileId = projectId;
+        }
+
+        return {
+          fileTree: newTree,
+          tabs: newTabs,
+          activeTabId: newActiveTabId,
+          selectedFileId: newSelectedFileId,
+        };
+      });
+    } catch (err) {
+      console.error("Error deleting node:", err);
+    }
+  },
+
+  renameNode: async (projectId: string, nodeId: string, newName: string) => {
+    if (!newName.trim()) return;
+    const { fileTree } = get();
+    const projectNode = fileTree.find(n => n.id === projectId);
+    if (!projectNode) return;
+
+    const filesMap: Record<string, string> = {};
+    const relativeNodePath = nodeId.replace(`${projectId}/`, "");
+    const segments = relativeNodePath.split("/");
+    segments[segments.length - 1] = newName;
+    const newRelativeNodePath = segments.join("/");
+    const newNodeId = `${projectId}/${newRelativeNodePath}`;
+
+    const isTargetFile = (id: string) => id === nodeId;
+    const isTargetFolder = (id: string) => id.startsWith(`${nodeId}/`);
+
+    const extractAndRenameFiles = (node: FileNode) => {
+      if (node.type === "file") {
+        const relativePath = node.id.replace(`${projectId}/`, "");
+        if (isTargetFile(node.id)) {
+          filesMap[newRelativeNodePath] = node.content ?? "";
+        } else if (isTargetFolder(node.id)) {
+          const suffix = node.id.substring(nodeId.length);
+          const newPath = newRelativeNodePath + suffix;
+          filesMap[newPath] = node.content ?? "";
+        } else {
+          filesMap[relativePath] = node.content ?? "";
+        }
+      } else if (node.children) {
+        node.children.forEach(extractAndRenameFiles);
+      }
+    };
+    extractAndRenameFiles(projectNode);
+
+    const processedCode = JSON.stringify({ files: filesMap });
+
+    let securityScore = 100;
+    let findings: unknown[] = [];
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`);
+      if (resp.ok) {
+        const gens = await resp.json();
+        const latest = [...gens].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+        if (latest) {
+          securityScore = latest.security_score;
+          findings = latest.findings ?? [];
+        }
+      }
+    } catch {}
+
+    try {
+      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: processedCode,
+          security_score: securityScore,
+          findings: findings,
+        }),
+      });
+
+      set(s => {
+        const newTabs = s.tabs.map(t => {
+          if (t.fileId === nodeId) {
+            return {
+              ...t,
+              id: `tab-${newNodeId}`,
+              fileId: newNodeId,
+              fileName: newName,
+            };
+          }
+          if (t.fileId.startsWith(`${nodeId}/`)) {
+            const suffix = t.fileId.substring(nodeId.length);
+            const nextFileId = newNodeId + suffix;
+            const nextFileName = nextFileId.split("/").pop() || "";
+            return {
+              ...t,
+              id: `tab-${nextFileId}`,
+              fileId: nextFileId,
+              fileName: nextFileName,
+            };
+          }
+          return t;
+        });
+
+        let newActiveTabId = s.activeTabId;
+        if (newActiveTabId === `tab-${nodeId}`) {
+          newActiveTabId = `tab-${newNodeId}`;
+        } else if (newActiveTabId && newActiveTabId.startsWith(`tab-${nodeId}/`)) {
+          const suffix = newActiveTabId.substring(`tab-${nodeId}`.length);
+          newActiveTabId = `tab-${newNodeId}` + suffix;
+        }
+
+        const updatedParams = {
+          projectId,
+          prompt: s.currentPrompt || "Manual File Rename",
+          language: s.liveLanguage || "javascript",
+          finalCode: processedCode,
+          auditTrail: s.auditTrail,
+          scoreHistory: s.scoreHistory,
+          securityScore: securityScore,
+          verdict: securityScore === 100 ? "clean" : "fix",
+          reasoning: "",
+          findings,
+        };
+        const newProjectNode = buildProjectTree(updatedParams);
+        const existingIdx = s.fileTree.findIndex(n => n.id === projectId);
+        const newTree = existingIdx >= 0
+          ? s.fileTree.map((n, i) => i === existingIdx ? newProjectNode : n)
+          : [...s.fileTree, newProjectNode];
+
+        let newSelectedFileId = s.selectedFileId;
+        if (newSelectedFileId === nodeId) {
+          newSelectedFileId = newNodeId;
+        } else if (newSelectedFileId && newSelectedFileId.startsWith(`${nodeId}/`)) {
+          const suffix = newSelectedFileId.substring(nodeId.length);
+          newSelectedFileId = newNodeId + suffix;
+        }
+
+        return {
+          fileTree: newTree,
+          tabs: newTabs,
+          activeTabId: newActiveTabId,
+          selectedFileId: newSelectedFileId,
+        };
+      });
+    } catch (err) {
+      console.error("Error renaming node:", err);
+    }
+  },
+
+  renameProject: async (projectId: string, newName: string) => {
+    if (!newName.trim()) return;
+    const cleanNewName = newName.trim();
+    const newProjectId = cleanNewName.startsWith("project_") ? cleanNewName : `project_${cleanNewName}`;
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_id: newProjectId }),
+      });
+
+      if (resp.ok) {
+        set(s => {
+          const newTree = s.fileTree.map(node => {
+            if (node.id === projectId) {
+              const renameIds = (n: FileNode): FileNode => {
+                const nextId = n.id.replace(projectId, newProjectId);
+                return {
+                  ...n,
+                  id: nextId,
+                  name: n.name === projectId ? newProjectId : n.name,
+                  children: n.children ? n.children.map(renameIds) : undefined,
+                };
+              };
+              return renameIds(node);
+            }
+            return node;
+          });
+
+          const newProjects = s.projects.map(p => {
+            if (p.id === projectId) {
+              return {
+                ...p,
+                id: newProjectId,
+                name: p.name.replace(projectId.replace("project_", ""), cleanNewName.replace("project_", "")),
+              };
+            }
+            return p;
+          });
+
+          const newTabs = s.tabs.map(t => {
+            if (t.fileId.startsWith(`${projectId}/`)) {
+              const nextFileId = t.fileId.replace(projectId, newProjectId);
+              return {
+                ...t,
+                id: `tab-${nextFileId}`,
+                fileId: nextFileId,
+              };
+            }
+            return t;
+          });
+
+          let newActiveTabId = s.activeTabId;
+          if (newActiveTabId && newActiveTabId.startsWith(`tab-${projectId}/`)) {
+            newActiveTabId = newActiveTabId.replace(projectId, newProjectId);
+          }
+
+          let newSelectedFileId = s.selectedFileId;
+          if (newSelectedFileId && newSelectedFileId.startsWith(`${projectId}/`)) {
+            newSelectedFileId = newSelectedFileId.replace(projectId, newProjectId);
+          }
+
+          let newActiveProjectId = s.activeProjectId;
+          if (newActiveProjectId === projectId) {
+            newActiveProjectId = newProjectId;
+          }
+
+          return {
+            fileTree: newTree,
+            projects: newProjects,
+            tabs: newTabs,
+            activeTabId: newActiveTabId,
+            selectedFileId: newSelectedFileId,
+            activeProjectId: newActiveProjectId,
+          };
+        });
+      } else {
+        const errText = await resp.text().catch(() => "");
+        alert(`Rename failed: ${errText}`);
+      }
+    } catch (err) {
+      console.error("Error renaming project:", err);
     }
   },
 

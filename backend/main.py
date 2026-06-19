@@ -434,6 +434,29 @@ async def run_code(request: RunRequest):
         }
 
 
+class RenameProjectRequest(BaseModel):
+    new_id: str
+
+@app.post("/api/projects/{project_id}/rename")
+async def rename_project_api(project_id: str, request: RenameProjectRequest):
+    if not request.new_id.strip():
+        raise HTTPException(status_code=400, detail="New name cannot be empty.")
+    
+    new_id = request.new_id.strip()
+    if not new_id.startswith("project_") and project_id.startswith("project_"):
+        new_id = f"project_{new_id}"
+
+    existing = get_project(new_id)
+    if existing:
+        raise HTTPException(status_code=400, detail="A project with this name already exists.")
+
+    from database import rename_project
+    success = rename_project(project_id, new_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Project not found or rename failed.")
+    return {"status": "success", "new_project_id": new_id}
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str

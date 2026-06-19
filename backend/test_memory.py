@@ -47,7 +47,8 @@ async def test_all():
     # 2. Test Project CRUD
     info("Testing Project Creation and Retrieval...")
     test_id = f"test_proj_{str(uuid.uuid4())[:8]}"
-    test_prompt = "Build a secure TCP server that listens on port 9000."
+    unique_suffix = str(uuid.uuid4())[:8]
+    test_prompt = f"Build a secure TCP server that listens on port 9000 - {unique_suffix}."
     try:
         create_project(test_id, "Test TCP Project", test_prompt, "javascript")
         proj = get_project(test_id)
@@ -109,6 +110,28 @@ async def test_all():
         err(f"Best generation retrieval failed: {e}")
         return
 
+    # 5b. Test Project Deletion
+    info("Testing Project Deletion...")
+    try:
+        from database import delete_project
+        delete_project(test_id)
+        proj_deleted = get_project(test_id)
+        gens_deleted = get_project_generations(test_id)
+        if proj_deleted is None and len(gens_deleted) == 0:
+            ok("Project and all generations deleted successfully from database.")
+        else:
+            err(f"Deletion failed. Project: {proj_deleted}, Generations: {gens_deleted}")
+            return
+            
+        # Recreate project and generations to allow subsequent semantic similarity search tests to pass
+        create_project(test_id, "Test TCP Project", test_prompt, "javascript")
+        create_generation(test_id, test_code, 85, test_findings, emb1)
+        create_generation(test_id, "worse code", 45, [], emb1)
+        create_generation(test_id, better_code, 98, [], emb1)
+    except Exception as e:
+        err(f"Project deletion test failed: {e}")
+        return
+
     # 6. Test Semantic Deduplication Search
     info("Testing Semantic Similarity Search...")
     try:
@@ -121,7 +144,7 @@ async def test_all():
             return
             
         # Query with slightly modified prompt
-        similar_prompt = "Build a self-contained Node.js TCP server on port 9000."
+        similar_prompt = f"Build a self-contained Node.js TCP server on port 9000 - {unique_suffix}."
         emb2 = get_embedding(similar_prompt)
         match2 = find_similar_generation(emb2, threshold=0.80)
         if match2 and match2["project_id"] == test_id:

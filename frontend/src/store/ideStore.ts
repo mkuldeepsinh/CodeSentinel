@@ -7,6 +7,7 @@ import {
   fetchProjects,
   fetchProject,
   fetchGenerations,
+  deleteProject as apiDeleteProject,
 } from "@/lib/api";
 import { getFileName, LANG_EXT, getLanguageLabel } from "@/lib/languages";
 import { API_BASE } from "@/lib/config";
@@ -147,6 +148,7 @@ interface IDEStore {
   createProjectFiles:  (params: CreateProjectParams) => void;
   updateLiveCode:      (code: string, language: string) => void;
   switchProject:       (projectId: string) => Promise<void>;
+  deleteProject:       (projectId: string) => Promise<void>;
   appendAuditSnapshot: (snapshot: AuditSnapshot) => void;
   setAuditTrail:       (trail: AuditSnapshot[]) => void;
   setScanRequest:      (req: { code: string; language: string } | null) => void;
@@ -394,7 +396,11 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   toggleFolder: (id) =>
     set(s => {
       const next = new Set(s.expandedFolders);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return { expandedFolders: next };
     }),
 
@@ -740,7 +746,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const currentEvents = get().pipelineEvents;
     if (get().isStreaming) {
       const doneEventAdded = currentEvents.some(e => e.type === "done" && e.message.includes(projectId));
-      let finalEvents = [...currentEvents];
+      const finalEvents = [...currentEvents];
       if (!doneEventAdded) {
         finalEvents.push({
           id: `evt-${Date.now()}-done`,
@@ -972,6 +978,55 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       });
       get().setPanelOpen(true);
       get().setActivePanelTab("codesentinel");
+    }
+  },
+
+  deleteProject: async (projectId: string) => {
+    try {
+      const resp = await apiDeleteProject(projectId);
+      if (resp.status === "success") {
+        // Remove the project node from fileTree
+        set(s => ({
+          fileTree: s.fileTree.filter(n => n.id !== projectId),
+          // Close all tabs of the deleted project
+          tabs: s.tabs.filter(t => !t.fileId.startsWith(`${projectId}/`)),
+        }));
+
+        // Select next active tab if the active tab was closed
+        const { tabs, activeTabId, activeProjectId } = get();
+        if (activeTabId && !tabs.find(t => t.id === activeTabId)) {
+          set({ activeTabId: tabs[0]?.id ?? null });
+        }
+
+        // Reload project list
+        await get().loadProjects();
+
+        // If the deleted project was the active project, switch to another or reset
+        if (activeProjectId === projectId) {
+          const remainingProjects = get().projects;
+          if (remainingProjects.length > 0) {
+            await get().switchProject(remainingProjects[0].id);
+          } else {
+            set({
+              activeProjectId: null,
+              selectedFileId: null,
+              auditTrail: [],
+              scoreHistory: [],
+              securityScore: null,
+              pipelineEvents: [
+                {
+                  id: "sys-0",
+                  type: "system",
+                  message: "No projects loaded. Generate a code project to start.",
+                  timestamp: new Date(),
+                },
+              ],
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error deleting project:", err);
     }
   },
 

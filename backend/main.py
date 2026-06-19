@@ -20,7 +20,8 @@ from database import (
     get_project_generations,
     find_similar_generation,
     create_project,
-    create_generation
+    create_generation,
+    delete_project
 )
 from embeddings import get_embedding
 
@@ -320,6 +321,21 @@ async def retrieve_project(project_id: str):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
+
+@app.delete("/api/projects/{project_id}")
+async def remove_project(project_id: str):
+    """
+    Deletes a project and its code generations from the database.
+    """
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    
+    try:
+        delete_project(project_id)
+        return {"status": "success", "message": f"Project {project_id} deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/projects/{project_id}/generations")
 async def project_history(project_id: str):

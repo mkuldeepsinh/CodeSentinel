@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Clock,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -135,8 +136,10 @@ function ScoreChip({ score }: { score: number }) {
 
 // ── Project List Item ─────────────────────────────────────────────────────────
 function ProjectItem({ project, isActive }: { project: Project; isActive: boolean }) {
-  const { switchProject, fileTree } = useIDEStore();
+  const { switchProject, fileTree, deleteProject } = useIDEStore();
   const [loading, setLoading] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Try to find the best score stored in the file tree for this project
   const projectNode = fileTree.find(n => n.id === project.id);
@@ -163,10 +166,86 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   const shortId = project.id.replace("project_", "");
   const langLabel = getLanguageLabel(project.language);
 
+  if (confirmDelete) {
+    return (
+      <div
+        style={{
+          display:         "flex",
+          alignItems:      "center",
+          justifyContent:  "space-between",
+          padding:         "5px 12px",
+          background:      "rgba(247,118,142,0.08)",
+          borderLeft:      "2px solid #f7768e",
+          userSelect:      "none",
+          minHeight:       32,
+        }}
+      >
+        <span style={{
+          fontSize: 11,
+          color: "#f7768e",
+          fontWeight: 600,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontFamily: "var(--font-mono)",
+        }}>
+          Delete {shortId}?
+        </span>
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              setLoading(true);
+              try {
+                await deleteProject(project.id);
+              } finally {
+                setLoading(false);
+                setConfirmDelete(false);
+              }
+            }}
+            disabled={loading}
+            style={{
+              background: "#f7768e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 3,
+              fontSize: 10,
+              padding: "2px 6px",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            Confirm
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDelete(false);
+            }}
+            disabled={loading}
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 3,
+              fontSize: 10,
+              padding: "2px 6px",
+              cursor: "pointer",
+            }}
+          >
+            No
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id={`project-item-${project.id}`}
       onClick={handleClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         display:       "flex",
         alignItems:    "center",
@@ -212,9 +291,42 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
 
       {loading ? (
         <RefreshCw size={10} style={{ color: "var(--text-muted)", animation: "spin 1s linear infinite", flexShrink: 0 }} />
-      ) : topScore !== null ? (
-        <ScoreChip score={topScore} />
-      ) : null}
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {topScore !== null && <ScoreChip score={topScore} />}
+          {isHovered && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(true);
+              }}
+              title="Delete project"
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 2,
+                borderRadius: 3,
+                color: "var(--text-muted)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "color 0.1s, background 0.1s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#f7768e";
+                e.currentTarget.style.background = "rgba(247,118,142,0.1)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-muted)";
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -230,7 +342,7 @@ export default function Sidebar() {
     setPanelOpen, setActivePanelTab,
   } = useIDEStore();
 
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectLanguage, setNewProjectLanguage] = useState("python");
@@ -240,7 +352,6 @@ export default function Sidebar() {
 
   // Load projects from backend on mount
   useEffect(() => {
-    setIsLoadingProjects(true);
     loadProjects().finally(() => setIsLoadingProjects(false));
   }, [loadProjects]);
 

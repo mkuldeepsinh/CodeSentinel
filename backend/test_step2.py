@@ -24,8 +24,15 @@ mock_structured_llm.invoke.return_value = TriageOutput(
     reasoning="Mocked secure analysis. No issues found."
 )
 
+mock_llm.with_structured_output.return_value = mock_structured_llm
+
+# Mock get_llm to return our mocked llm instance
+def mock_get_llm(model_env_var: str, default_model: str):
+    return mock_llm
+
 # Apply mocks to graph.nodes module
 import graph.nodes
+graph.nodes.get_llm = mock_get_llm
 graph.nodes.llm = mock_llm
 graph.nodes.structured_llm = mock_structured_llm
 

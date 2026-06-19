@@ -138,6 +138,28 @@ def create_project(project_id: str, name: str, prompt: str, language: str):
         )
         conn.commit()
 
+def delete_project(project_id: str) -> bool:
+    """
+    Deletes a project and all its generations.
+    """
+    if USE_POSTGRES:
+        try:
+            with psycopg.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM generations WHERE project_id = %s;", (project_id,))
+                    cur.execute("DELETE FROM projects WHERE id = %s;", (project_id,))
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"database.py WARNING: PostgreSQL delete failed ({e}), falling back to SQLite")
+
+    with sqlite3.connect(SQLITE_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM generations WHERE project_id = ?;", (project_id,))
+        cur.execute("DELETE FROM projects WHERE id = ?;", (project_id,))
+        conn.commit()
+    return True
+
 def get_project(project_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieves a project by ID.

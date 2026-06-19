@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useIDEStore, Tab, FileNode } from "@/store/ideStore";
 import { X, ShieldCheck, Zap, Play, Loader2, Eye, Code } from "lucide-react";
 import { runCode } from "@/lib/api";
@@ -375,11 +375,13 @@ function EmptyEditor() {
 export default function EditorZone() {
   const { tabs, activeTabId } = useIDEStore();
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const [prevTabId, setPrevTabId] = useState<string | null>(activeTabId);
   const [viewMode, setViewMode] = useState<"code" | "preview">("code");
 
-  useEffect(() => {
+  if (activeTabId !== prevTabId) {
+    setPrevTabId(activeTabId);
     setViewMode("code");
-  }, [activeTabId]);
+  }
 
   return (
     <div className="ide-editor-zone">

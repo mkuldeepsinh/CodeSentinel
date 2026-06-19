@@ -182,3 +182,14 @@ export async function runCode(code: string, language: string): Promise<{
   }
   return resp.json();
 }
+
+export async function deleteProject(id: string): Promise<{ status: string; message: string }> {
+  const resp = await fetch(`${API_BASE}/api/projects/${id}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`deleteProject: HTTP ${resp.status} - ${text}`);
+  }
+  return resp.json();
+}

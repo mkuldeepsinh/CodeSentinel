@@ -1,7 +1,6 @@
 "use client";
 
 import { useIDEStore } from "@/store/ideStore";
-import ActivityBar from "./ActivityBar";
 import Sidebar from "./Sidebar";
 import EditorZone from "./EditorZone";
 import BottomPanel from "./BottomPanel";
@@ -49,21 +48,18 @@ export default function IDEShell() {
       className="ide-shell"
       style={{
         gridTemplateColumns: sidebarOpen
-          ? "48px 260px 1fr"
-          : "48px 0px 1fr",
+          ? "260px 1fr"
+          : "0px 1fr",
         gridTemplateRows,
         gridTemplateAreas: `
-          "actbar sidebar editor"
-          "actbar sidebar panel"
-          "statusbar statusbar statusbar"
+          "sidebar editor"
+          "sidebar panel"
+          "statusbar statusbar"
         `,
         userSelect: isDragging ? "none" : undefined,
         cursor: isDragging ? "ns-resize" : undefined,
       }}
     >
-      {/* Zone 1: Activity Bar */}
-      <ActivityBar />
-
       {/* Zone 2: Sidebar */}
       <Sidebar />
 

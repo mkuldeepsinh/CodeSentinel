@@ -202,8 +202,9 @@ def run_code_in_container(
                     print(f"[docker_tool] pip install warning: {err_out[:200]}")
 
         # ── Execute ────────────────────────────────────────────────────────────
+        # Wrap execution in BusyBox timeout command to prevent infinite hanging (e.g. servers)
         exec_result = container.exec_run(
-            f"{exec_cmd} /workspace/{entry_file}",
+            f"timeout {timeout} {exec_cmd} /workspace/{entry_file}",
             workdir="/workspace",
             demux=True,   # separate stdout and stderr streams
         )
@@ -211,6 +212,10 @@ def run_code_in_container(
         stdout_bytes, stderr_bytes = exec_result.output if exec_result.output else (b"", b"")
         stdout = (stdout_bytes or b"").decode("utf-8", errors="replace")
         stderr = (stderr_bytes or b"").decode("utf-8", errors="replace")
+
+        # If the command timed out (exit status 143 or 124), append feedback warning
+        if exec_result.exit_code in (124, 143):
+            stderr += f"\n[CodeSentinel] Execution timed out after {timeout} seconds."
 
         return {
             "success": exec_result.exit_code == 0,

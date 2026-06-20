@@ -337,6 +337,7 @@ export default function BottomPanel() {
     saveChatHistory,
     terminalSessionId,
     setTerminalRunRequest,
+    terminalRunRequest,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -344,6 +345,14 @@ export default function BottomPanel() {
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [confirmData, setConfirmData] = useState<{ prompt: string; fileRelativePath: string } | null>(null);
   const [chatMode, setChatMode] = useState<"pipeline" | "chat">("pipeline");
+  const [terminalMounted, setTerminalMounted] = useState<boolean>(false);
+
+  // Keep terminal mounted after the first time it is opened or code is run
+  useEffect(() => {
+    if (activePanelTab === "terminal" || terminalRunRequest) {
+      setTerminalMounted(true);
+    }
+  }, [activePanelTab, terminalRunRequest]);
 
   // Auto-scroll chat log
   useEffect(() => {
@@ -784,10 +793,6 @@ export default function BottomPanel() {
     }
   };
 
-  if (!panelOpen) {
-    return <div className="ide-panel" style={{ height: 0, overflow: "hidden" }} />;
-  }
-
   const PANEL_TABS: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
     { id: "codesentinel", label: "CodeSentinel", icon: <Shield   size={12} /> },
     { id: "audit",        label: "Audit Trail",  icon: <BarChart2 size={12} /> },
@@ -796,7 +801,7 @@ export default function BottomPanel() {
   ];
 
   return (
-    <div className="ide-panel">
+    <div className="ide-panel" style={!panelOpen ? { display: "none" } : undefined}>
       {/* Panel tab bar */}
       <div className="panel-tabs">
         {PANEL_TABS.map(pt => (
@@ -1057,8 +1062,8 @@ export default function BottomPanel() {
         {activePanelTab === "audit" && <AuditTrailPanel />}
 
         {/* ── Terminal Tab ── */}
-        {activePanelTab === "terminal" && (
-          <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+        {terminalMounted && (
+          <div style={{ width: "100%", height: "100%", overflow: "hidden", display: activePanelTab === "terminal" ? "block" : "none" }}>
             <TerminalTab sessionId={terminalSessionId} />
           </div>
         )}

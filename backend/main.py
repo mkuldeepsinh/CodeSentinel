@@ -784,7 +784,13 @@ async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optio
         return
 
     _terminal_sessions[session_id] = session
-    await websocket.send_text("\r\n\x1b[32m● Docker terminal ready. Type commands below.\x1b[0m\r\n")
+    
+    ready_msg = "\r\n\x1b[32m● Docker terminal ready. Type commands below.\x1b[0m"
+    if session.port_mappings:
+        mappings_str = ", ".join([f"container {k.split('/')[0]} → host {v}" for k, v in session.port_mappings.items()])
+        ready_msg += f"\r\n\x1b[34m● Port forwarding active: {mappings_str}\x1b[0m"
+    ready_msg += "\r\n"
+    await websocket.send_text(ready_msg)
 
     loop = asyncio.get_event_loop()
 

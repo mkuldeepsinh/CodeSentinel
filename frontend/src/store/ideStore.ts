@@ -71,7 +71,7 @@ export interface CreateProjectParams {
   findings:      SemgrepFinding[];
 }
 
-export type PanelTab    = "codesentinel" | "terminal" | "output" | "audit";
+export type PanelTab    = "codesentinel" | "terminal" | "output" | "audit" | "preview";
 export type ActivityView = "explorer" | "search" | "git" | "settings";
 
 // ── Store Interface ───────────────────────────────────────────────────────────

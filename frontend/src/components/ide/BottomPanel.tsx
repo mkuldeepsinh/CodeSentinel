@@ -18,6 +18,8 @@ import {
   Shield,
   BarChart2,
   Zap,
+  RotateCw,
+  Globe,
 } from "lucide-react";
 import { useRef, useEffect, useState, FormEvent } from "react";
 
@@ -316,6 +318,97 @@ function AuditTrailPanel() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Web Preview Panel ─────────────────────────────────────────────────────────
+function WebPreviewPanel() {
+  const [urlInput, setUrlInput] = useState("http://localhost:3001");
+  const [iframeUrl, setIframeUrl] = useState("http://localhost:3001");
+  const [key, setKey] = useState(0);
+
+  const handleRefresh = () => {
+    setKey(k => k + 1);
+  };
+
+  const handleGo = (e: FormEvent) => {
+    e.preventDefault();
+    let target = urlInput.trim();
+    if (!/^https?:\/\//i.test(target)) {
+      target = `http://${target}`;
+      setUrlInput(target);
+    }
+    setIframeUrl(target);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", background: "#0d1117" }}>
+      {/* Browser address bar */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 12px",
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border-subtle)",
+        flexShrink: 0,
+      }}>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          title="Reload preview"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            padding: 4,
+            borderRadius: 4,
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "var(--bg-highlight)"}
+          onMouseLeave={e => e.currentTarget.style.background = "none"}
+        >
+          <RotateCw size={12} />
+        </button>
+
+        <form onSubmit={handleGo} style={{ flex: 1, display: "flex" }}>
+          <input
+            type="text"
+            value={urlInput}
+            onChange={e => setUrlInput(e.target.value)}
+            style={{
+              width: "100%",
+              background: "var(--bg-base)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 4,
+              color: "var(--text-bright)",
+              fontSize: 11,
+              padding: "4px 10px",
+              outline: "none",
+              fontFamily: "var(--font-mono)",
+            }}
+          />
+        </form>
+      </div>
+
+      {/* Frame view */}
+      <div style={{ flex: 1, width: "100%", background: "#ffffff", position: "relative" }}>
+        <iframe
+          key={key}
+          src={iframeUrl}
+          style={{
+            width: "100%",
+            height: "100%",
+            border: "none",
+            background: "#ffffff",
+          }}
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+        />
+      </div>
     </div>
   );
 }
@@ -797,6 +890,7 @@ export default function BottomPanel() {
     { id: "codesentinel", label: "CodeSentinel", icon: <Shield   size={12} /> },
     { id: "audit",        label: "Audit Trail",  icon: <BarChart2 size={12} /> },
     { id: "terminal",     label: "Terminal",     icon: <Terminal  size={12} /> },
+    { id: "preview",      label: "Web Preview",  icon: <Globe     size={12} /> },
     { id: "output",       label: "Output",       icon: <Radio     size={12} /> },
   ];
 
@@ -1065,6 +1159,13 @@ export default function BottomPanel() {
         {terminalMounted && (
           <div style={{ width: "100%", height: "100%", overflow: "hidden", display: activePanelTab === "terminal" ? "block" : "none" }}>
             <TerminalTab sessionId={terminalSessionId} />
+          </div>
+        )}
+
+        {/* ── Web Preview Tab ── */}
+        {terminalMounted && (
+          <div style={{ width: "100%", height: "100%", overflow: "hidden", display: activePanelTab === "preview" ? "block" : "none" }}>
+            <WebPreviewPanel />
           </div>
         )}
 

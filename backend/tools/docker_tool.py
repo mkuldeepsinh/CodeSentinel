@@ -257,12 +257,36 @@ class DockerTerminalSession:
         self.container = None
         self._exec_id = None
         self._sock = None
+        self.port_mappings = {}
 
     def start(self):
-        """Start the container and open a PTY exec session."""
+        """Start the container and open a PTY exec session with port mappings."""
         workdir = "/workspace"
         if self.project_id:
             workdir = f"/codesentinel/{self.project_id}"
+
+        # Resolve host port mappings dynamically to prevent port collisions
+        ports_to_map = {}
+        preferred_mappings = {3000: 3001, 5000: 5001, 8080: 8082}
+        
+        import socket
+        def is_port_free(port: int) -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(('127.0.0.1', port))
+                    return True
+                except Exception:
+                    return False
+
+        for container_port, host_port in preferred_mappings.items():
+            candidate = host_port
+            while candidate < host_port + 10:
+                if is_port_free(candidate):
+                    ports_to_map[f"{container_port}/tcp"] = candidate
+                    break
+                candidate += 1
+        
+        self.port_mappings = ports_to_map
 
         self.container = self._client.containers.run(
             self.image,
@@ -271,6 +295,7 @@ class DockerTerminalSession:
             stdin_open=True,
             tty=True,
             working_dir=workdir,
+            ports=ports_to_map,
             **RESOURCE_LIMITS,
         )
         self._client.api.exec_create  # ensure api is accessible

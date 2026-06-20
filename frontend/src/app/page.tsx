@@ -395,6 +395,63 @@ const SCREENSHOTS_TOUR = [
   }
 ];
 
+/* ── Demo Video Showcase Component ───────────────────────── */
+function DemoVideoShowcase() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          video.play().catch(err => {
+            console.log("Autoplay blocked by browser or failed:", err);
+          });
+        } else {
+          video.pause();
+        }
+      },
+      {
+        threshold: 0.3,
+      }
+    );
+
+    observer.observe(video);
+
+    return () => {
+      observer.unobserve(video);
+    };
+  }, []);
+
+  return (
+    <section className="hp-section hp-video-section">
+      <div className="hp-fade-up">
+        <div className="hp-eyebrow">Interactive Demo</div>
+        <h2 className="hp-h2">
+          See CodeSentinel <span>in Action</span>
+        </h2>
+        <p className="hp-lead" style={{ maxWidth: "700px", margin: "0 auto" }}>
+          Watch how our multi-agent DevSecOps pipeline coordinates developer, execution, and security scanner agents to write, test, and patch code autonomously.
+        </p>
+      </div>
+      <div className="hp-video-wrapper hp-fade-up">
+        <video
+          ref={videoRef}
+          src="/demo-video.mp4"
+          className="hp-video-iframe"
+          loop
+          muted
+          playsInline
+          preload="auto"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      </div>
+    </section>
+  );
+}
+
 function ScreenshotsShowcase() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -710,25 +767,7 @@ export default function Home() {
         <ScreenshotsShowcase />
 
         {/* ── Demo Video Showcase ── */}
-        <section className="hp-section hp-video-section">
-          <div className="hp-fade-up">
-            <div className="hp-eyebrow">Interactive Demo</div>
-            <h2 className="hp-h2">
-              See CodeSentinel <span>in Action</span>
-            </h2>
-            <p className="hp-lead" style={{ maxWidth: "700px", margin: "0 auto" }}>
-              Watch how our multi-agent DevSecOps pipeline coordinates developer, execution, and security scanner agents to write, test, and patch code autonomously.
-            </p>
-          </div>
-          <div className="hp-video-wrapper hp-fade-up">
-            <iframe
-              src="https://drive.google.com/file/d/1Gbbkl-GmEjGqYXzjmH2GwPw13Hx7kAag/preview"
-              className="hp-video-iframe"
-              allow="autoplay; encrypted-media"
-              allowFullScreen
-            />
-          </div>
-        </section>
+        <DemoVideoShowcase />
 
         {/* ── Features ── */}
         <section id="features" className="hp-section">

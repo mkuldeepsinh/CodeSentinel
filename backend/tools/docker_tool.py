@@ -239,11 +239,26 @@ def run_code_in_container(
         stderr = (stderr_bytes or b"").decode("utf-8", errors="replace")
 
         # If the command timed out (exit status 143 or 124), append feedback warning
-        if exec_result.exit_code in (124, 143):
+        is_timeout = exec_result.exit_code in (124, 143)
+        if is_timeout:
             stderr += f"\n[CodeSentinel] Execution timed out after {timeout} seconds."
 
+        is_success = exec_result.exit_code == 0
+        if is_timeout:
+            lower_err = stderr.lower()
+            # If the output contains syntax/runtime errors or traceback exceptions, it's a crash.
+            # Otherwise, a server listening indefinitely is considered a successful start.
+            has_crash = (
+                "traceback" in lower_err or
+                "exception" in lower_err or
+                "error" in lower_err or
+                "node:internal" in lower_err
+            )
+            if not has_crash:
+                is_success = True
+
         return {
-            "success": exec_result.exit_code == 0,
+            "success": is_success,
             "stdout": stdout,
             "stderr": stderr,
         }

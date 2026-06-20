@@ -158,6 +158,8 @@ interface IDEStore {
   appendAuditSnapshot: (snapshot: AuditSnapshot) => void;
   setAuditTrail:       (trail: AuditSnapshot[]) => void;
   setScanRequest:      (req: { code: string; language: string } | null) => void;
+  terminalRunRequest:  { files: Record<string, string>; command: string } | null;
+  setTerminalRunRequest: (req: { files: Record<string, string>; command: string } | null) => void;
 }
 
 // ── Pure Helpers ──────────────────────────────────────────────────────────────
@@ -359,6 +361,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 
   // Scan request from EditorZone
   scanRequest: null,
+  terminalRunRequest: null,
 
   // Panel
   panelOpen:          true,
@@ -1509,4 +1512,5 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   setAuditTrail: (trail) => set({ auditTrail: trail }),
 
   setScanRequest: (req) => set({ scanRequest: req }),
+  setTerminalRunRequest: (req) => set({ terminalRunRequest: req }),
 }));

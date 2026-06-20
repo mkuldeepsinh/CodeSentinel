@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 from typing import Optional, List, Dict, Any
@@ -742,10 +743,11 @@ async def save_project_code(project_id: str, request: SaveCodeRequest, current_u
 
 # ── Active Docker PTY sessions: session_id -> DockerTerminalSession ────────────
 _terminal_sessions: Dict[str, Any] = {}
+_cpr_regex = re.compile(r'\x1b\[\d+;\d+R')
 
 
 @app.websocket("/ws/terminal/{session_id}")
-async def terminal_websocket(websocket: WebSocket, session_id: str):
+async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optional[str] = None):
     """
     WebSocket endpoint that exposes a full interactive PTY inside a Docker
     container.  The frontend TerminalTab component connects here.
@@ -754,12 +756,16 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
       - Text frames from client  → written to container PTY stdin
       - Text frames from server  ← container PTY stdout/stderr
       - Special frame "__RESIZE__:cols,rows"  → PTY resize
+      - Special frame "__LOAD_FILES__:<b64json>"  → load files into workspace
     """
     await websocket.accept()
 
     from tools.docker_tool import DockerTerminalSession
 
-    session = DockerTerminalSession(session_id)
+    kwargs = {}
+    if image:
+        kwargs["image"] = image
+    session = DockerTerminalSession(session_id, **kwargs)
     try:
         session.start()
     except Exception as exc:
@@ -793,8 +799,36 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
                         session.resize(cols, rows)
                     except ValueError:
                         pass
+                elif msg.startswith("__LOAD_FILES__:"):
+                    _, payload = msg.split(":", 1)
+                    try:
+                        import base64
+                        decoded = base64.b64decode(payload).decode("utf-8")
+                        data = json.loads(decoded)
+                        files = data.get("files", {})
+                        command = data.get("command", None)
+
+                        def _load_and_run():
+                            if files:
+                                session.load_files(files)
+                            if command:
+                                session.write(f"{command}\n".encode("utf-8"))
+
+                        await loop.run_in_executor(None, _load_and_run)
+                        await websocket.send_text("\r\n\x1b[32m● Loaded workspace files into container.\x1b[0m\r\n")
+                    except Exception as exc:
+                        await websocket.send_text(f"\r\n\x1b[31m[CodeSentinel] Failed to load files: {exc}\x1b[0m\r\n")
                 else:
-                    session.write(msg.encode("utf-8"))
+                    # Strip ANSI Cursor Position Report (CPR) responses (e.g. \x1b[3;14R)
+                    # sent by terminal emulators, which can corrupt python input() read buffers.
+                    processed = _cpr_regex.sub('', msg)
+
+                    # Translate raw carriage returns (\r or \r\n) to standard newlines (\n)
+                    # to prevent Python's input() from retaining trailing \r in the PTY.
+                    processed = processed.replace("\r\n", "\n").replace("\r", "\n")
+
+                    if processed:
+                        session.write(processed.encode("utf-8"))
         except WebSocketDisconnect:
             pass
 

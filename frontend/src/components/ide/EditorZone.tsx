@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useIDEStore, Tab, FileNode } from "@/store/ideStore";
 import { X, ShieldCheck, Zap, Play, Loader2, Eye, Code } from "lucide-react";
-import { runCode } from "@/lib/api";
 import CodeEditor from "./CodeEditor";
 
 // ── Language dot color ────────────────────────────────────────────────────────
@@ -112,8 +111,7 @@ function EditorToolbar({
     isStreaming,
     activeProjectId,
     fileTree,
-    addEvent,
-    setStreaming,
+    setTerminalRunRequest,
   } = useIDEStore();
 
   const hasContent = tab.content.trim().length > 0;
@@ -127,15 +125,8 @@ function EditorToolbar({
     setActivePanelTab("codesentinel");
   };
 
-  const handleRun = async () => {
-    if (!hasContent || isStreaming || isLive) return;
-
-    setPanelOpen(true);
-    setActivePanelTab("codesentinel");
-    setStreaming(true);
-
-    addEvent({ type: "user", message: `run ${tab.fileName}` });
-    addEvent({ type: "system", message: "Connecting to E2B Sandbox for execution…" });
+  const handleRun = () => {
+    if (!hasContent || isStreaming || isLive || !activeProjectId) return;
 
     // Gather project file tree contents
     const projectNode = fileTree.find(n => n.id === activeProjectId);
@@ -161,36 +152,29 @@ function EditorToolbar({
     const currentRelativePath = tab.fileId.replace(`${activeProjectId}/`, "");
     filesMap[currentRelativePath] = tab.content;
 
-    const codeContent = Object.keys(filesMap).length > 0
-      ? JSON.stringify({ files: filesMap })
-      : tab.content;
+    // Determine the run command based on file extension / language
+    const getRunCommand = (fileName: string, lang: string) => {
+      const l = lang.toLowerCase();
+      if (l === "python" || l === "py") {
+        return `python3 ${fileName}`;
+      }
+      if (l === "typescript" || l === "ts" || fileName.endsWith(".ts")) {
+        return `npx ts-node ${fileName}`;
+      }
+      return `node ${fileName}`;
+    };
 
-    try {
-      const res = await runCode(codeContent, tab.language);
-      let msg = `Execution completed. Success: ${res.success}`;
-      if (res.stdout.trim()) {
-        msg += `\nStdout:\n\`\`\`\n${res.stdout.trim()}\n\`\`\``;
-      }
-      if (res.stderr.trim()) {
-        msg += `\nStderr:\n\`\`\`\n${res.stderr.trim()}\n\`\`\``;
-      }
-      if (!res.stdout.trim() && !res.stderr.trim()) {
-        msg += " No output recorded.";
-      }
-      addEvent({
-        type: "node_end",
-        node: "sandbox_execute",
-        message: msg,
-      });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      addEvent({
-        type: "error",
-        message: `Execution failed: ${message}`
-      });
-    } finally {
-      setStreaming(false);
-    }
+    const command = getRunCommand(currentRelativePath, tab.language);
+
+    // Queue terminal run request
+    setTerminalRunRequest({
+      files: filesMap,
+      command,
+    });
+
+    // Open terminal panel
+    setPanelOpen(true);
+    setActivePanelTab("terminal");
   };
 
   if (!hasContent || isLive) return <div style={{ height: 30 }} />;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams, FileNode } from "@/store/ideStore";
-import { streamGenerate, runCode, sendChatPrompt, ChatMessage as ApiChatMessage } from "@/lib/api";
+import { streamGenerate, sendChatPrompt, ChatMessage as ApiChatMessage } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
 import TerminalTab from "@/components/ide/TerminalTab";
@@ -336,6 +336,7 @@ export default function BottomPanel() {
     activeProjectId, tabs, activeTabId, fileTree,
     saveChatHistory,
     terminalSessionId,
+    setTerminalRunRequest,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -702,11 +703,7 @@ export default function BottomPanel() {
 
     if (isRunCmd) {
       setCurrentPrompt("");
-      setActivePanelTab("codesentinel");
-      setStreaming(true);
-
-      addEvent({ type: "user", message: prompt });
-      addEvent({ type: "system", message: "Connecting to E2B Sandbox for execution…" });
+      if (!activeProjectId) return;
 
       // Gather current file tree contents
       const projectNode = fileTree.find(n => n.id === activeProjectId);
@@ -729,36 +726,39 @@ export default function BottomPanel() {
       }
 
       const activeTab = tabs.find(t => t.id === activeTabId);
-      const codeContent = Object.keys(filesMap).length > 0
-        ? JSON.stringify({ files: filesMap })
-        : activeTab?.content ?? "";
 
-      try {
-        const res = await runCode(codeContent, currentLanguage);
-        let msg = `Execution completed. Success: ${res.success}`;
-        if (res.stdout.trim()) {
-          msg += `\nStdout:\n\`\`\`\n${res.stdout.trim()}\n\`\`\``;
+      // Determine command to run
+      let command = prompt.trim();
+      if (command.toLowerCase().startsWith("run")) {
+        let filename = "";
+        if (command.toLowerCase() === "run") {
+          filename = activeTab ? activeTab.fileId.replace(`${activeProjectId}/`, "") : "";
+        } else {
+          filename = command.substring(3).trim(); // strip "run"
         }
-        if (res.stderr.trim()) {
-          msg += `\nStderr:\n\`\`\`\n${res.stderr.trim()}\n\`\`\``;
+
+        if (filename) {
+          const ext = filename.split(".").pop()?.toLowerCase();
+          const activeLanguage = (activeTab?.language || currentLanguage || "javascript").toLowerCase();
+          if (ext === "py" || activeLanguage === "python") {
+            command = `python3 ${filename}`;
+          } else if (ext === "ts" || activeLanguage === "typescript") {
+            command = `npx ts-node ${filename}`;
+          } else {
+            command = `node ${filename}`;
+          }
         }
-        if (!res.stdout.trim() && !res.stderr.trim()) {
-          msg += " No output recorded.";
-        }
-        addEvent({
-          type: "node_end",
-          node: "sandbox_execute",
-          message: msg,
-        });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        addEvent({
-          type: "error",
-          message: `Execution failed: ${message}`
-        });
-      } finally {
-        setStreaming(false);
       }
+
+      // Queue terminal run request
+      setTerminalRunRequest({
+        files: filesMap,
+        command,
+      });
+
+      // Open terminal tab
+      setPanelOpen(true);
+      setActivePanelTab("terminal");
       return;
     }
 

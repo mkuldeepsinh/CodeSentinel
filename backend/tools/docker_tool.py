@@ -287,6 +287,18 @@ class DockerTerminalSession:
         """Write bytes to PTY stdin."""
         self._sock._sock.sendall(data)
 
+    def load_files(self, files: dict):
+        """Write files into container workspace."""
+        if not self.container:
+            return
+        self.container.exec_run("mkdir -p /workspace")
+        for filepath, content in files.items():
+            if filepath == "security_report.md" or filepath.startswith(".sentinel/"):
+                continue
+            full_path = f"/workspace/{filepath}"
+            _ensure_parent_dir(self.container, full_path)
+            _write_file_to_container(self.container, full_path, content)
+
     def resize(self, cols: int, rows: int):
         """Resize the PTY."""
         try:

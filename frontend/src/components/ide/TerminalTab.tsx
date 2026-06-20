@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { API_WS_BASE } from "@/lib/config";
+import { useIDEStore } from "@/store/ideStore";
 
 // ── Types for xterm.js (loaded dynamically to avoid SSR issues) ───────────────
 interface XTerminal {
@@ -42,12 +43,32 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
   const wsRef        = useRef<WebSocket | null>(null);
   const cleanedUp    = useRef(false);
 
+  const { activeProjectId, projects, terminalRunRequest, setTerminalRunRequest } = useIDEStore();
+
+  const project = projects.find(p => p.id === activeProjectId);
+  const lang = (project?.language || "javascript").toLowerCase();
+  const image = lang === "python" || lang === "py" ? "python:3.12-alpine" : "node:20-alpine";
+
   const cleanup = useCallback(() => {
     if (cleanedUp.current) return;
     cleanedUp.current = true;
     wsRef.current?.close();
     termRef.current?.dispose();
   }, []);
+
+  // Handle run requests when terminal is already open
+  useEffect(() => {
+    if (terminalRunRequest && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        const { files, command } = terminalRunRequest;
+        const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ files, command }))));
+        wsRef.current.send(`__LOAD_FILES__:${payload}`);
+      } catch (err) {
+        console.error("Failed to send code to terminal:", err);
+      }
+      setTerminalRunRequest(null);
+    }
+  }, [terminalRunRequest, setTerminalRunRequest]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === "undefined") return;
@@ -98,13 +119,26 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
       fitRef.current  = fitAddon;
 
       // ── WebSocket connection ────────────────────────────────────────────────
-      const url = `${API_WS_BASE}/ws/terminal/${sessionId}`;
+      const url = `${API_WS_BASE}/ws/terminal/${sessionId}?image=${encodeURIComponent(image)}`;
       const ws  = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
         // Send initial resize
         ws.send(`__RESIZE__:${term.cols},${term.rows}`);
+
+        // Check for pending run request on initial connect
+        const pending = useIDEStore.getState().terminalRunRequest;
+        if (pending) {
+          try {
+            const { files, command } = pending;
+            const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ files, command }))));
+            ws.send(`__LOAD_FILES__:${payload}`);
+          } catch (err) {
+            console.error("Failed to send code to terminal on connect:", err);
+          }
+          useIDEStore.getState().setTerminalRunRequest(null);
+        }
       };
 
       ws.onmessage = (evt) => {

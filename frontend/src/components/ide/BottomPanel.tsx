@@ -4,6 +4,7 @@ import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, Cr
 import { streamGenerate, runCode, sendChatPrompt, ChatMessage as ApiChatMessage } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
+import TerminalTab from "@/components/ide/TerminalTab";
 import {
   Terminal,
   Radio,
@@ -23,22 +24,22 @@ import { useRef, useEffect, useState, FormEvent } from "react";
 // ── Pipeline node order ───────────────────────────────────────────────────────
 const PIPELINE_NODES = [
   "developer_agent",
-  "e2b_execute",
+  "sandbox_execute",
   "semgrep_scan",
   "triage_agent",
   "synthesizer_agent",
-  "e2b_verify",
+  "sandbox_verify",
   "finalize",
 ];
 
 const NODE_LABELS: Record<string, string> = {
-  developer_agent:   "Developer",
-  e2b_execute:       "E2B Execute",
-  semgrep_scan:      "Semgrep Scan",
-  triage_agent:      "Triage",
-  synthesizer_agent: "Synthesizer",
-  e2b_verify:        "E2B Verify",
-  finalize:          "Finalize",
+  developer_agent:    "Developer",
+  sandbox_execute:    "Sandbox Execute",
+  semgrep_scan:       "Semgrep Scan",
+  triage_agent:       "Triage",
+  synthesizer_agent:  "Synthesizer",
+  sandbox_verify:     "Sandbox Verify",
+  finalize:           "Finalize",
   semantic_cache_hit: "Cache Hit",
   chat:               "CodeSentinel",
 };
@@ -183,7 +184,7 @@ function EventMessage({ event }: { event: PipelineEvent }) {
             : event.node === "semgrep_scan" ? "var(--accent-yellow)"
             : event.node === "triage_agent" ? "var(--accent-purple)"
             : event.node === "synthesizer_agent" ? "var(--accent-teal)"
-            : event.node === "e2b_execute" || event.node === "e2b_verify" ? "var(--accent-pink)"
+            : event.node === "sandbox_execute" || event.node === "sandbox_verify" ? "var(--accent-pink)"
             : "var(--accent-cyan)"
         }}>
           [{label}]
@@ -334,6 +335,7 @@ export default function BottomPanel() {
     scanRequest, setScanRequest,
     activeProjectId, tabs, activeTabId, fileTree,
     saveChatHistory,
+    terminalSessionId,
   } = useIDEStore();
 
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -449,7 +451,7 @@ export default function BottomPanel() {
             message: `Triage: ${verdict.toUpperCase()}. Score: ${score}/100. ${findings.length} finding(s) to fix.`,
           });
 
-        } else if (node === "e2b_execute" || node === "e2b_verify") {
+        } else if (node === "sandbox_execute" || node === "sandbox_verify") {
           const success = output.execution_success as boolean;
           const stdout  = (output.execution_stdout as string) ?? "";
           const stderr  = (output.execution_stderr as string) ?? "";
@@ -745,7 +747,7 @@ export default function BottomPanel() {
         }
         addEvent({
           type: "node_end",
-          node: "e2b_execute",
+          node: "sandbox_execute",
           message: msg,
         });
       } catch (err: unknown) {
@@ -1056,13 +1058,8 @@ export default function BottomPanel() {
 
         {/* ── Terminal Tab ── */}
         {activePanelTab === "terminal" && (
-          <div className="cli-log">
-            <div style={{ color: "var(--accent-green)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
-              bash-5.2$ <span style={{ color: "var(--text-secondary)" }}>cd /Users/kuldeepsinh/Desktop/CodeSentinel</span>
-            </div>
-            <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>
-              Use the integrated terminal or open an external terminal.
-            </div>
+          <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+            <TerminalTab sessionId={terminalSessionId} />
           </div>
         )}
 

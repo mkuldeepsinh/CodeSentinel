@@ -99,9 +99,10 @@ interface IDEStore {
   scanRequest: { code: string; language: string } | null;
 
   // Bottom Panel
-  panelOpen:        boolean;
-  activePanelTab:   PanelTab;
-  panelHeight:      number;
+  panelOpen:          boolean;
+  activePanelTab:     PanelTab;
+  panelHeight:        number;
+  terminalSessionId:  string;  // unique ID for Docker PTY WebSocket session
 
   // Pipeline
   pipelineEvents:  PipelineEvent[];
@@ -360,9 +361,10 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   scanRequest: null,
 
   // Panel
-  panelOpen:       true,
-  activePanelTab:  "codesentinel",
-  panelHeight:     320,
+  panelOpen:          true,
+  activePanelTab:     "codesentinel",
+  panelHeight:        320,
+  terminalSessionId:  typeof crypto !== "undefined" ? crypto.randomUUID() : `term-${Date.now()}`,
 
   // Pipeline
   pipelineEvents: [

@@ -179,7 +179,7 @@ function EditorToolbar({
       }
       addEvent({
         type: "node_end",
-        node: "e2b_execute",
+        node: "sandbox_execute",
         message: msg,
       });
     } catch (err: unknown) {

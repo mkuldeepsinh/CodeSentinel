@@ -1,5 +1,6 @@
 /* Fonts loaded via next/font in layout.tsx (no external @import needed) */
 @import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
 
 /* ═══════════════════════════════════════════════════════════════
    TOKEN NIGHT — Design System Variables

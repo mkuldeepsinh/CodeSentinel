@@ -128,8 +128,8 @@ class TestStateModels(unittest.TestCase):
 # SECTION 4 – Node functions (mocked LLM + tools)
 # ─────────────────────────────────────────────
 from graph.nodes import (
-    developer_agent, e2b_execute, semgrep_scan,
-    triage_agent, synthesizer_agent, e2b_verify, finalize
+    developer_agent, sandbox_execute, semgrep_scan,
+    triage_agent, synthesizer_agent, sandbox_verify, finalize
 )
 
 def _make_mock_llm(response_content: str) -> MagicMock:
@@ -229,12 +229,12 @@ class TestE2BExecuteNode(unittest.TestCase):
             "stdout": "Hello, World!\n",
             "stderr": ""
         }
-        result = e2b_execute(_base_state())
+        result = sandbox_execute(_base_state())
 
         self.assertTrue(result["execution_success"])
         self.assertEqual(result["execution_stdout"], "Hello, World!\n")
         self.assertEqual(result["execution_stderr"], "")
-        self.assertEqual(result["stage_events"][0]["node"], "e2b_execute")
+        self.assertEqual(result["stage_events"][0]["node"], "sandbox_execute")
 
     @patch("graph.nodes.execute_in_sandbox")
     def test_failure_result(self, mock_sandbox):
@@ -243,7 +243,7 @@ class TestE2BExecuteNode(unittest.TestCase):
             "stdout": "",
             "stderr": "SyntaxError: Unexpected token"
         }
-        result = e2b_execute(_base_state())
+        result = sandbox_execute(_base_state())
 
         self.assertFalse(result["execution_success"])
         self.assertIn("SyntaxError", result["execution_stderr"])
@@ -380,17 +380,17 @@ class TestE2BVerifyNode(unittest.TestCase):
         mock_sandbox.return_value = {
             "success": True, "stdout": "Done\n", "stderr": ""
         }
-        result = e2b_verify(_base_state())
+        result = sandbox_verify(_base_state())
 
         self.assertTrue(result["execution_success"])
-        self.assertEqual(result["stage_events"][0]["node"], "e2b_verify")
+        self.assertEqual(result["stage_events"][0]["node"], "sandbox_verify")
 
     @patch("graph.nodes.execute_in_sandbox")
     def test_verify_failure(self, mock_sandbox):
         mock_sandbox.return_value = {
             "success": False, "stdout": "", "stderr": "Error!"
         }
-        result = e2b_verify(_base_state())
+        result = sandbox_verify(_base_state())
 
         self.assertFalse(result["execution_success"])
 
@@ -428,8 +428,8 @@ class TestGraphCompilation(unittest.TestCase):
         # LangGraph compiled graph exposes nodes via get_graph()
         node_names = set(graph.get_graph().nodes.keys())
         expected = {
-            "developer_agent", "e2b_execute", "semgrep_scan",
-            "triage_agent", "synthesizer_agent", "e2b_verify", "finalize"
+            "developer_agent", "sandbox_execute", "semgrep_scan",
+            "triage_agent", "synthesizer_agent", "sandbox_verify", "finalize"
         }
         for node in expected:
             self.assertIn(node, node_names, f"Node '{node}' missing from compiled graph")

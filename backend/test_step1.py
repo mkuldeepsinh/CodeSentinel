@@ -5,7 +5,7 @@ from dotenv import load_dotenv, find_dotenv
 # Ensure import paths resolve correctly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from tools.e2b_tool import execute_nodejs_in_sandbox
+from tools.code_utils import execute_nodejs_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 
 def test_e2b():

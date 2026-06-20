@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore", message=r".*NotOpenSSLWarning.*", category=War
 warnings.filterwarnings("ignore", message=r".*urllib3 v2 only supports OpenSSL.*")
 
 from graph.state import PipelineState, TriageOutput
-from tools.e2b_tool import execute_in_sandbox
+from tools.code_utils import execute_in_sandbox
 from tools.semgrep_tool import run_semgrep, normalize_finding
 import uuid
 from database import create_project, get_best_generation, get_latest_generation, create_generation
@@ -223,17 +223,17 @@ def developer_agent(state: PipelineState) -> dict:
         "stage_events": [event]
     }
 
-def e2b_execute(state: PipelineState) -> dict:
+def sandbox_execute(state: PipelineState) -> dict:
     """
-    Executes the current code inside an E2B Sandbox microVM to test functionality.
+    Executes the current code inside a Docker sandbox container to test functionality.
     """
     code = state["current_code"]
     language = state.get("language", "javascript")
     res = execute_in_sandbox(code, language)
     
     event = {
-        "node": "e2b_execute",
-        "message": f"E2B sandbox execution completed. Success: {res['success']}",
+        "node": "sandbox_execute",
+        "message": f"Docker sandbox execution completed. Success: {res['success']}",
         "stdout": res["stdout"],
         "stderr": res["stderr"]
     }
@@ -401,16 +401,16 @@ Instructions:
         "stage_events": [event]
     }
 
-def e2b_verify(state: PipelineState) -> dict:
+def sandbox_verify(state: PipelineState) -> dict:
     """
-    Executes patched code in E2B to confirm the fix didn't break functionality.
+    Executes patched code in a Docker sandbox to confirm the fix didn't break functionality.
     """
     code = state["current_code"]
     language = state.get("language", "javascript")
     res = execute_in_sandbox(code, language)
     
     event = {
-        "node": "e2b_verify",
+        "node": "sandbox_verify",
         "message": f"Verification run: execution success is {res['success']}",
         "stdout": res["stdout"],
         "stderr": res["stderr"]

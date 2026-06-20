@@ -2,11 +2,11 @@ from langgraph.graph import StateGraph, START, END
 from graph.state import PipelineState
 from graph.nodes import (
     developer_agent,
-    e2b_execute,
+    sandbox_execute,
     semgrep_scan,
     triage_agent,
     synthesizer_agent,
-    e2b_verify,
+    sandbox_verify,
     finalize
 )
 from graph.edges import (
@@ -24,13 +24,13 @@ def build_graph(checkpointer=None):
     workflow = StateGraph(PipelineState)
     
     # Register all nodes
-    workflow.add_node("developer_agent", developer_agent)
-    workflow.add_node("e2b_execute", e2b_execute)
-    workflow.add_node("semgrep_scan", semgrep_scan)
-    workflow.add_node("triage_agent", triage_agent)
-    workflow.add_node("synthesizer_agent", synthesizer_agent)
-    workflow.add_node("e2b_verify", e2b_verify)
-    workflow.add_node("finalize", finalize)
+    workflow.add_node("developer_agent",   developer_agent)
+    workflow.add_node("sandbox_execute",    sandbox_execute)
+    workflow.add_node("semgrep_scan",       semgrep_scan)
+    workflow.add_node("triage_agent",       triage_agent)
+    workflow.add_node("synthesizer_agent",  synthesizer_agent)
+    workflow.add_node("sandbox_verify",     sandbox_verify)
+    workflow.add_node("finalize",           finalize)
     
     # Entry point: conditional — skip developer_agent if user provided their own code
     workflow.add_conditional_edges(
@@ -41,15 +41,15 @@ def build_graph(checkpointer=None):
             "semgrep_scan":    "semgrep_scan"
         }
     )
-    workflow.add_edge("developer_agent", "e2b_execute")
+    workflow.add_edge("developer_agent", "sandbox_execute")
     
-    # Wire conditional edge after initial run execution
+    # Wire conditional edge after initial sandbox execution
     workflow.add_conditional_edges(
-        "e2b_execute",
+        "sandbox_execute",
         check_execution_success,
         {
             "developer_agent": "developer_agent",
-            "semgrep_scan": "semgrep_scan"
+            "semgrep_scan":    "semgrep_scan"
         }
     )
     
@@ -61,22 +61,22 @@ def build_graph(checkpointer=None):
         "triage_agent",
         check_triage_verdict,
         {
-            "finalize": "finalize",
+            "finalize":          "finalize",
             "synthesizer_agent": "synthesizer_agent"
         }
     )
     
-    # Synthesizer moves to E2B verification
-    workflow.add_edge("synthesizer_agent", "e2b_verify")
+    # Synthesizer moves to Docker sandbox verification
+    workflow.add_edge("synthesizer_agent", "sandbox_verify")
     
     # Wire conditional edge after verification
     workflow.add_conditional_edges(
-        "e2b_verify",
+        "sandbox_verify",
         check_verify_result,
         {
-            "semgrep_scan": "semgrep_scan",
+            "semgrep_scan":      "semgrep_scan",
             "synthesizer_agent": "synthesizer_agent",
-            "finalize": "finalize"
+            "finalize":          "finalize"
         }
     )
     

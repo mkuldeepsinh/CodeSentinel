@@ -16,11 +16,11 @@ const PIPELINE_NODES = [
     icon: "DEV",
   },
   {
-    id: "e2b_execute",
-    label: "e2b_execute",
-    desc: "Runs code in isolated microVM",
+    id: "sandbox_execute",
+    label: "sandbox_execute",
+    desc: "Runs code in isolated Docker container",
     type: "tool",
-    icon: "E2B",
+    icon: "BOX",
   },
   {
     id: "semgrep_scan",
@@ -62,11 +62,11 @@ const NODE_CARDS = [
     desc: "Receives the natural language prompt and writes correct, runnable Node.js code. On execution errors it retries up to 3 times with targeted fixes.",
   },
   {
-    id: "e2b_execute",
+    id: "sandbox_execute",
     type: "Tool",
     typeClass: "hp-tag-tool",
-    name: "E2B Execute",
-    desc: "Runs the generated code inside an isolated E2B microVM, capturing stdout, stderr, and exit code in real time. No risk to the host.",
+    name: "Sandbox Execute",
+    desc: "Runs the generated code inside an isolated Docker container, capturing stdout, stderr, and exit code in real time. npm packages are auto-installed. No risk to the host.",
   },
   {
     id: "semgrep_scan",

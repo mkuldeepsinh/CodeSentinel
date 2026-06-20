@@ -36,11 +36,11 @@ MAGENTA= "\033[95m"
 
 NODE_COLORS = {
     "developer_agent":   BLUE,
-    "e2b_execute":       CYAN,
+    "sandbox_execute":       CYAN,
     "semgrep_scan":      YELLOW,
     "triage_agent":      MAGENTA,
     "synthesizer_agent": RED,
-    "e2b_verify":        CYAN,
+    "sandbox_verify":        CYAN,
     "finalize":          GREEN,
 }
 
@@ -153,18 +153,18 @@ async def run_pipeline():
                     preview = code[:300].replace('\n', '\n     ')
                     print(f"  {BLUE}Code preview:{RESET}\n     {preview}\n     …")
 
-            elif node_name == "e2b_execute":
+            elif node_name == "sandbox_execute":
                 success = state_update.get("execution_success", False)
                 stdout  = state_update.get("execution_stdout", "")
                 stderr  = state_update.get("execution_stderr", "")
                 if success:
-                    ok(f"E2B sandbox execution PASSED")
+                    ok(f"Docker sandbox execution PASSED")
                     if stdout:
                         print(f"  {GREEN}stdout:{RESET}")
                         for line in stdout.strip().split('\n')[:10]:
                             print(f"    {line}")
                 else:
-                    err(f"E2B sandbox execution FAILED")
+                    err(f"Docker sandbox execution FAILED")
                     if stderr:
                         print(f"  {RED}stderr:{RESET}")
                         for line in stderr.strip().split('\n')[:8]:
@@ -201,7 +201,7 @@ async def run_pipeline():
                 iters = state_update.get("security_iterations", 0)
                 ok(f"Synthesizer patched code (iteration {iters}) — {len(code)} chars")
 
-            elif node_name == "e2b_verify":
+            elif node_name == "sandbox_verify":
                 success = state_update.get("execution_success", False)
                 stdout  = state_update.get("execution_stdout", "")
                 stderr  = state_update.get("execution_stderr", "")
@@ -272,8 +272,8 @@ if __name__ == "__main__":
         err("GOOGLE_API_KEY not set. Check your .env file.")
         sys.exit(1)
 
-    if not os.environ.get("E2B_API_KEY"):
-        err("E2B_API_KEY not set. Check your .env file.")
+    if not os.environ.get("DOCKER_AVAILABLE"):
+        err("DOCKER_AVAILABLE not set. Check your .env file.")
         sys.exit(1)
 
     asyncio.run(run_pipeline())

@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi import FastAPI, HTTPException, Depends, Security, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,14 +85,29 @@ async def lifespan(app: FastAPI):
     # Initialise LangGraph checkpointer
     db_url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DATABASE_URL")
     if db_url:
+        # Supabase free tier drops idle connections aggressively.
+        # Add keepalive + connection timeout params to prevent mid-pipeline drops.
+        keepalive_params = (
+            "keepalives=1"
+            "&keepalives_idle=10"
+            "&keepalives_interval=5"
+            "&keepalives_count=3"
+            "&connect_timeout=10"
+        )
+        if "?" in db_url:
+            db_url_with_ka = f"{db_url}&{keepalive_params}"
+        else:
+            db_url_with_ka = f"{db_url}?{keepalive_params}"
+
         try:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            app.state.checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url)
+            app.state.checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url_with_ka)
             app.state.checkpointer = await app.state.checkpointer_ctx.__aenter__()
             await app.state.checkpointer.setup()
-            print("FastAPI Lifespan: Postgres checkpointer initialized successfully.")
+            print("FastAPI Lifespan: Postgres checkpointer initialized successfully (with keepalive).")
         except Exception as e:
             print(f"FastAPI Lifespan WARNING: Failed to initialize Postgres checkpointer: {e}")
+            print("FastAPI Lifespan: Falling back to MemorySaver.")
             from langgraph.checkpoint.memory import MemorySaver
             app.state.checkpointer = MemorySaver()
     else:
@@ -454,7 +469,38 @@ async def event_generator(prompt: str, language: str, project_id: str, code: str
     except Exception as e:
         import traceback
         traceback.print_exc()
-        payload = {"message": f"Execution Error: {str(e)}"}
+        err_str = str(e)
+
+        # Detect Supabase / PostgreSQL connection drop mid-pipeline
+        is_db_drop = any(phrase in err_str.lower() for phrase in [
+            "consuming input failed",
+            "server closed the connection unexpectedly",
+            "connection was closed",
+            "ssl connection has been closed",
+            "terminating connection due to administrator command",
+        ])
+
+        if is_db_drop:
+            # Swap checkpointer to MemorySaver so next request works without restart
+            try:
+                from langgraph.checkpoint.memory import MemorySaver
+                from graph.graph import build_graph
+                app.state.checkpointer = MemorySaver()
+                app.state.graph = build_graph(app.state.checkpointer)
+                print("main.py: Supabase drop detected — switched checkpointer to MemorySaver and rebuilt graph.")
+            except Exception as rebuild_err:
+                print(f"main.py: Failed to rebuild graph after DB drop: {rebuild_err}")
+
+            payload = {
+                "message": (
+                    "Database connection dropped (Supabase free tier idle timeout). "
+                    "The pipeline has automatically switched to in-memory mode. "
+                    "Please retry your request — it will work now."
+                )
+            }
+        else:
+            payload = {"message": f"Execution Error: {err_str}"}
+
         yield f"event: error\ndata: {json.dumps(payload)}\n\n"
 
 @app.post("/api/generate")
@@ -694,24 +740,99 @@ async def save_project_code(project_id: str, request: SaveCodeRequest, current_u
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── Active Docker PTY sessions: session_id -> DockerTerminalSession ────────────
+_terminal_sessions: Dict[str, Any] = {}
+
+
+@app.websocket("/ws/terminal/{session_id}")
+async def terminal_websocket(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint that exposes a full interactive PTY inside a Docker
+    container.  The frontend TerminalTab component connects here.
+
+    Protocol:
+      - Text frames from client  → written to container PTY stdin
+      - Text frames from server  ← container PTY stdout/stderr
+      - Special frame "__RESIZE__:cols,rows"  → PTY resize
+    """
+    await websocket.accept()
+
+    from tools.docker_tool import DockerTerminalSession
+
+    session = DockerTerminalSession(session_id)
+    try:
+        session.start()
+    except Exception as exc:
+        await websocket.send_text(f"\r\n\x1b[31m[CodeSentinel] Failed to start Docker terminal: {exc}\x1b[0m\r\n")
+        await websocket.close()
+        return
+
+    _terminal_sessions[session_id] = session
+    await websocket.send_text("\r\n\x1b[32m● Docker terminal ready. Type commands below.\x1b[0m\r\n")
+
+    loop = asyncio.get_event_loop()
+
+    async def _read_container():
+        """Continuously read PTY output and forward to WebSocket."""
+        while True:
+            data = await loop.run_in_executor(None, session.read, 1024)
+            if data:
+                await websocket.send_text(data.decode("utf-8", errors="replace"))
+            else:
+                await asyncio.sleep(0.02)
+
+    async def _write_container():
+        """Read WebSocket messages and write to PTY stdin."""
+        try:
+            while True:
+                msg = await websocket.receive_text()
+                if msg.startswith("__RESIZE__:"):
+                    _, dims = msg.split(":", 1)
+                    try:
+                        cols, rows = map(int, dims.split(","))
+                        session.resize(cols, rows)
+                    except ValueError:
+                        pass
+                else:
+                    session.write(msg.encode("utf-8"))
+        except WebSocketDisconnect:
+            pass
+
+    try:
+        await asyncio.gather(_read_container(), _write_container())
+    except Exception:
+        pass
+    finally:
+        session.stop()
+        _terminal_sessions.pop(session_id, None)
+
+
 class RunRequest(BaseModel):
     code: str
     language: str
 
+
 @app.post("/api/run")
 async def run_code(request: RunRequest, current_user: dict = Depends(get_current_user)):
     """
-    Executes code inside an E2B Sandbox on demand.
+    Executes code inside a Docker container on demand.
+    Replaces the old E2B-based execution endpoint.
     """
-    from tools.e2b_tool import execute_in_sandbox
+    from tools.docker_tool import run_code_in_container
     try:
-        res = execute_in_sandbox(request.code, request.language)
+        res = await asyncio.get_event_loop().run_in_executor(
+            None,
+            run_code_in_container,
+            request.code,
+            request.language,
+            60,
+        )
         return res
-    except Exception as e:
+    except Exception as exc:
         return {
             "success": False,
             "stdout": "",
-            "stderr": f"Error running code: {str(e)}"
+            "stderr": f"Error running code: {str(exc)}"
         }
 
 

@@ -747,7 +747,7 @@ _cpr_regex = re.compile(r'\x1b\[\d+;\d+R')
 
 
 @app.websocket("/ws/terminal/{session_id}")
-async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optional[str] = None):
+async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optional[str] = None, projectId: Optional[str] = None):
     """
     WebSocket endpoint that exposes a full interactive PTY inside a Docker
     container.  The frontend TerminalTab component connects here.
@@ -762,9 +762,19 @@ async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optio
 
     from tools.docker_tool import DockerTerminalSession
 
+    # Close any existing session with the same session_id to prevent phantom connections
+    existing = _terminal_sessions.pop(session_id, None)
+    if existing:
+        try:
+            existing.stop()
+        except Exception:
+            pass
+
     kwargs = {}
     if image:
         kwargs["image"] = image
+    if projectId:
+        kwargs["project_id"] = projectId
     session = DockerTerminalSession(session_id, **kwargs)
     try:
         session.start()
@@ -809,13 +819,33 @@ async def terminal_websocket(websocket: WebSocket, session_id: str, image: Optio
                         command = data.get("command", None)
 
                         def _load_and_run():
-                            if files:
-                                session.load_files(files)
-                            if command:
-                                session.write(f"{command}\n".encode("utf-8"))
+                            try:
+                                if _terminal_sessions.get(session_id) is not session:
+                                    print(f"DEBUG: Session {session_id} is no longer active. Aborting _load_and_run.")
+                                    return
+                                print(f"DEBUG: _load_and_run started. Command: {command}")
+                                if files:
+                                    print(f"DEBUG: loading {len(files)} files into container workspace...")
+                                    session.load_files(files)
+                                if _terminal_sessions.get(session_id) is not session:
+                                    print(f"DEBUG: Session {session_id} is no longer active. Aborting before writing command.")
+                                    return
+                                if command:
+                                    print(f"DEBUG: writing command to PTY stdin: {command}")
+                                    session.write(f"{command}\n".encode("utf-8"))
+                                print("DEBUG: _load_and_run completed successfully!")
+                            except Exception as e:
+                                if _terminal_sessions.get(session_id) is not session:
+                                    print(f"DEBUG: Suppressing error in inactive session {session_id}: {e}")
+                                    return
+                                import traceback
+                                print("DEBUG: Exception in _load_and_run:")
+                                traceback.print_exc()
+                                raise e
 
                         await loop.run_in_executor(None, _load_and_run)
-                        await websocket.send_text("\r\n\x1b[32m● Loaded workspace files into container.\x1b[0m\r\n")
+                        if _terminal_sessions.get(session_id) is session:
+                            await websocket.send_text("\r\n\x1b[32m● Loaded workspace files into container.\x1b[0m\r\n")
                     except Exception as exc:
                         await websocket.send_text(f"\r\n\x1b[31m[CodeSentinel] Failed to load files: {exc}\x1b[0m\r\n")
                 else:

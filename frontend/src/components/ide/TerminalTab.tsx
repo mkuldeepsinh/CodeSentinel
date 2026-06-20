@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { API_WS_BASE } from "@/lib/config";
-import { useIDEStore } from "@/store/ideStore";
+import { useIDEStore, FileNode } from "@/store/ideStore";
 
 // ── Types for xterm.js (loaded dynamically to avoid SSR issues) ───────────────
 interface XTerminal {
@@ -41,7 +41,6 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
   const termRef      = useRef<XTerminal | null>(null);
   const fitRef       = useRef<FitAddonInstance | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
-  const cleanedUp    = useRef(false);
 
   const { activeProjectId, projects, terminalRunRequest, setTerminalRunRequest } = useIDEStore();
 
@@ -49,31 +48,34 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
   const lang = (project?.language || "javascript").toLowerCase();
   const image = lang === "python" || lang === "py" ? "python:3.12-alpine" : "node:20-alpine";
 
-  const cleanup = useCallback(() => {
-    if (cleanedUp.current) return;
-    cleanedUp.current = true;
-    wsRef.current?.close();
-    termRef.current?.dispose();
-  }, []);
-
   // Handle run requests when terminal is already open
   useEffect(() => {
-    if (terminalRunRequest && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      try {
-        const { files, command } = terminalRunRequest;
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ files, command }))));
-        wsRef.current.send(`__LOAD_FILES__:${payload}`);
-      } catch (err) {
-        console.error("Failed to send code to terminal:", err);
+    console.log("TerminalTab: terminalRunRequest changed:", terminalRunRequest);
+    if (terminalRunRequest) {
+      const term = termRef.current;
+      const ws = wsRef.current;
+      console.log("TerminalTab: wsRef.current readyState:", ws ? ws.readyState : "null");
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        term?.write("\r\n\x1b[35m● Sending code changes to Docker container PTY...\x1b[0m\r\n");
+        try {
+          const { files, command } = terminalRunRequest;
+          const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ files, command }))));
+          ws.send(`__LOAD_FILES__:${payload}`);
+        } catch (err) {
+          term?.write(`\r\n\x1b[31m[CodeSentinel] Error sending code: ${err}\x1b[0m\r\n`);
+          console.error("Failed to send code to terminal:", err);
+        }
+        setTerminalRunRequest(null);
+      } else {
+        term?.write(`\r\n\x1b[33m[CodeSentinel] WebSocket not ready (state: ${ws ? ws.readyState : "null"}). Deferring run command until connected...\x1b[0m\r\n`);
       }
-      setTerminalRunRequest(null);
     }
   }, [terminalRunRequest, setTerminalRunRequest]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === "undefined") return;
-    cleanedUp.current = false;
 
+    let active = true;
     let term: XTerminal;
     let fitAddon: FitAddonInstance;
     let resizeObserver: ResizeObserver;
@@ -83,7 +85,7 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
       const { Terminal }  = await import("@xterm/xterm");
       const { FitAddon }  = await import("@xterm/addon-fit");
 
-      if (!containerRef.current || cleanedUp.current) return;
+      if (!containerRef.current || !active) return;
 
       term = new Terminal({
         theme: {
@@ -119,11 +121,20 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
       fitRef.current  = fitAddon;
 
       // ── WebSocket connection ────────────────────────────────────────────────
-      const url = `${API_WS_BASE}/ws/terminal/${sessionId}?image=${encodeURIComponent(image)}`;
+      const url = `${API_WS_BASE}/ws/terminal/${sessionId}?image=${encodeURIComponent(image)}&projectId=${encodeURIComponent(activeProjectId || "")}`;
       const ws  = new WebSocket(url);
       wsRef.current = ws;
 
+      if (!active) {
+        ws.close();
+        wsRef.current = null;
+        term.dispose();
+        termRef.current = null;
+        return;
+      }
+
       ws.onopen = () => {
+        if (!active) return;
         // Send initial resize
         ws.send(`__RESIZE__:${term.cols},${term.rows}`);
 
@@ -138,34 +149,65 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
             console.error("Failed to send code to terminal on connect:", err);
           }
           useIDEStore.getState().setTerminalRunRequest(null);
+        } else if (activeProjectId) {
+          // Load all files of the active project into the container workspace on startup
+          try {
+            const filesMap: Record<string, string> = {};
+            const extractFiles = (node: FileNode) => {
+              if (node.type === "file") {
+                const relativePath = node.id.replace(`${activeProjectId}/`, "");
+                if (
+                  relativePath !== "security_report.md" &&
+                  !relativePath.startsWith(".sentinel/")
+                ) {
+                  filesMap[relativePath] = node.content ?? "";
+                }
+              } else if (node.children) {
+                node.children.forEach(extractFiles);
+              }
+            };
+            const treeNode = useIDEStore.getState().fileTree.find(n => n.id === activeProjectId);
+            if (treeNode) {
+              extractFiles(treeNode);
+            }
+            if (Object.keys(filesMap).length > 0) {
+              const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ files: filesMap }))));
+              ws.send(`__LOAD_FILES__:${payload}`);
+            }
+          } catch (err) {
+            console.error("Failed to load initial files to terminal on connect:", err);
+          }
         }
       };
 
       ws.onmessage = (evt) => {
+        if (!active) return;
         term.write(typeof evt.data === "string" ? evt.data : "");
       };
 
       ws.onerror = () => {
+        if (!active) return;
         term.write(
           "\r\n\x1b[31m[CodeSentinel] WebSocket error — is the backend running?\x1b[0m\r\n"
         );
       };
 
       ws.onclose = () => {
-        if (!cleanedUp.current) {
+        if (active) {
           term.write("\r\n\x1b[33m[CodeSentinel] Terminal session closed.\x1b[0m\r\n");
         }
       };
 
       // Forward keystrokes to container
       term.onData((data: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (active && ws.readyState === WebSocket.OPEN) {
           ws.send(data);
         }
       });
 
       // Resize observer — tell both xterm and the PTY when panel resizes
       resizeObserver = new ResizeObserver(() => {
+        if (!active) return;
         fitAddon.fit();
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(`__RESIZE__:${term.cols},${term.rows}`);
@@ -177,11 +219,13 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
     init().catch(console.error);
 
     return () => {
+      active = false;
       resizeObserver?.disconnect();
-      cleanup();
+      wsRef.current?.close();
+      termRef.current?.dispose();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, activeProjectId, image]);
 
   return (
     <div

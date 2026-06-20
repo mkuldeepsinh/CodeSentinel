@@ -126,7 +126,11 @@ function EditorToolbar({
   };
 
   const handleRun = () => {
-    if (!hasContent || isStreaming || isLive || !activeProjectId) return;
+    console.log("EditorZone: handleRun clicked. activeProjectId:", activeProjectId);
+    if (!hasContent || isStreaming || isLive || !activeProjectId) {
+      console.log("EditorZone: handleRun check failed:", { hasContent, isStreaming, isLive, activeProjectId });
+      return;
+    }
 
     // Gather project file tree contents
     const projectNode = fileTree.find(n => n.id === activeProjectId);

@@ -240,9 +240,10 @@ class DockerTerminalSession:
     terminal tab.  Used by the WebSocket endpoint in main.py.
     """
 
-    def __init__(self, session_id: str, image: str = DOCKER_IMAGE):
+    def __init__(self, session_id: str, image: str = DOCKER_IMAGE, project_id: Optional[str] = None):
         self.session_id = session_id
         self.image = image
+        self.project_id = project_id
         self._client = _get_client()
         self.container = None
         self._exec_id = None
@@ -250,13 +251,17 @@ class DockerTerminalSession:
 
     def start(self):
         """Start the container and open a PTY exec session."""
+        workdir = "/workspace"
+        if self.project_id:
+            workdir = f"/codesentinel/{self.project_id}"
+
         self.container = self._client.containers.run(
             self.image,
             command="/bin/sh",
             detach=True,
             stdin_open=True,
             tty=True,
-            working_dir="/workspace",
+            working_dir=workdir,
             **RESOURCE_LIMITS,
         )
         self._client.api.exec_create  # ensure api is accessible
@@ -291,11 +296,12 @@ class DockerTerminalSession:
         """Write files into container workspace."""
         if not self.container:
             return
-        self.container.exec_run("mkdir -p /workspace")
+        workdir = f"/codesentinel/{self.project_id}" if self.project_id else "/workspace"
+        self.container.exec_run(f"mkdir -p {workdir}")
         for filepath, content in files.items():
             if filepath == "security_report.md" or filepath.startswith(".sentinel/"):
                 continue
-            full_path = f"/workspace/{filepath}"
+            full_path = f"{workdir}/{filepath}"
             _ensure_parent_dir(self.container, full_path)
             _write_file_to_container(self.container, full_path, content)
 

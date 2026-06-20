@@ -343,7 +343,7 @@ function WebPreviewPanel() {
           const mappings = data.port_mappings || {};
           const hostPort = mappings["3000/tcp"];
           if (hostPort) {
-            const url = `http://localhost:${hostPort}`;
+            const url = `${API_BASE}/api/terminal/${terminalSessionId}/proxy/`;
             setUrlInput(url);
             setIframeUrl(url);
           }

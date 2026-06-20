@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, HTTPException, Depends, Security, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, Security, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -932,6 +932,96 @@ async def get_terminal_ports(session_id: str, current_user: dict = Depends(get_c
     if not session:
         return {"port_mappings": {}}
     return {"port_mappings": session.port_mappings}
+
+
+@app.api_route("/api/terminal/{session_id}/proxy", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+@app.api_route("/api/terminal/{session_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def terminal_proxy(session_id: str, request: Request, path: str = ""):
+    """
+    Proxies requests from the IDE's Web Preview tab to the running Docker PTY terminal.
+    Strips security headers like X-Frame-Options and Content-Security-Policy to allow framing
+    inside the IDE, and modifies cookie paths to enable session cookie persistence.
+    """
+    import httpx
+    
+    session = _terminal_sessions.get(session_id)
+    if not session:
+        return Response(content="Terminal session not found or inactive", status_code=404)
+        
+    host_port = session.port_mappings.get("3000/tcp")
+    if not host_port:
+        return Response(content="No active port mapping found for port 3000", status_code=404)
+        
+    target_url = f"http://localhost:{host_port}/{path}"
+    # Forward query parameters
+    query_params = dict(request.query_params)
+    if query_params:
+        from urllib.parse import urlencode
+        target_url += f"?{urlencode(query_params)}"
+        
+    # Read headers and modify host
+    headers = dict(request.headers)
+    headers["host"] = f"localhost:{host_port}"
+    
+    # Exclude connection headers
+    exclude_req_headers = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"]
+    for key in exclude_req_headers:
+        headers.pop(key, None)
+        
+    # Read body
+    body = await request.body()
+    
+    # Send request using httpx
+    async with httpx.AsyncClient() as client:
+        try:
+            req = client.build_request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+                timeout=10.0
+            )
+            resp = await client.send(req)
+        except Exception as e:
+            return Response(content=f"Error proxying request to container: {str(e)}", status_code=502)
+            
+    # Build response headers
+    exclude_resp_headers = [
+        "content-length", "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
+        "x-frame-options", "content-security-policy"
+    ]
+    
+    headers_list = []
+    for k, v in resp.headers.raw:
+        k_str = k.decode("utf-8").lower()
+        if k_str not in exclude_resp_headers:
+            if k_str == "set-cookie":
+                v_str = v.decode("utf-8")
+                v_str = re.sub(r'(?i)path=\s*/', f'Path=/api/terminal/{session_id}/proxy', v_str)
+                headers_list.append((k_str, v_str))
+            else:
+                headers_list.append((k_str, v.decode("utf-8")))
+
+    content_type = resp.headers.get("content-type", "")
+    content = resp.content
+    if "text/html" in content_type:
+        html_str = content.decode("utf-8", errors="replace")
+        base_tag = f'<base href="/api/terminal/{session_id}/proxy/" />'
+        if "<head>" in html_str:
+            html_str = html_str.replace("<head>", f"<head>{base_tag}", 1)
+        elif "<HEAD>" in html_str:
+            html_str = html_str.replace("<HEAD>", f"<HEAD>{base_tag}", 1)
+        else:
+            html_str = base_tag + html_str
+        content = html_str.encode("utf-8")
+        
+    return Response(
+        content=content,
+        status_code=resp.status_code,
+        headers=dict(headers_list)
+    )
+
 
 
 

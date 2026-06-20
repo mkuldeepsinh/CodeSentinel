@@ -1025,6 +1025,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         selectedFileId:  `${projectId}/${codeName}`,
         expandedFolders: newExpanded,
         language:        langLabel(langKey),
+        currentLanguage: langKey,
         liveCode:        filesMap[codeName] || "",
         liveLanguage:    langKey,
         auditTrail:      params.auditTrail,

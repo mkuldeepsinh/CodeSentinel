@@ -87,7 +87,7 @@ def _exec_cmd_for_language(lang: str) -> str:
 def _entry_candidates_for_language(lang: str) -> list:
     if lang in ("python", "py"):
         return ["main.py", "app.py", "index.py", "run.py"]
-    return ["index.js", "server.js", "app.js", "main.js", "index.ts"]
+    return ["index.js", "server.js", "app.js", "main.js", "index.ts", "server.ts", "app.ts", "main.ts", "index.tsx", "app.tsx"]
 
 
 def _suffix_for_language(lang: str) -> str:
@@ -134,17 +134,38 @@ def run_code_in_container(
     # ── Determine entry point ──────────────────────────────────────────────────
     if files_map:
         entry_file = None
+        # 1. Candidate match
         for candidate in candidates:
             if candidate in files_map:
                 entry_file = candidate
                 break
+        
+        # 2. Suffix match
         if not entry_file:
             for fname in files_map:
                 if fname.endswith(suffix):
                     entry_file = fname
                     break
+                    
+        # 3. Alternative executable extension match
+        if not entry_file:
+            executable_exts = (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".py", ".go", ".rs")
+            for fname in files_map:
+                if fname.endswith(executable_exts) and not fname.startswith(".sentinel/"):
+                    entry_file = fname
+                    break
+
+        # 4. Fallback ignoring documentation/config files
         if not entry_file and files_map:
-            entry_file = list(files_map.keys())[0]
+            ignored_patterns = (".md", ".json", ".txt", ".keep", ".sentinel/", "package.json", "tsconfig.json", "requirements.txt")
+            for fname in files_map:
+                if not any(fname.endswith(pat) or pat in fname for pat in ignored_patterns):
+                    entry_file = fname
+                    break
+            
+            # Last resort fallback
+            if not entry_file:
+                entry_file = list(files_map.keys())[0]
     else:
         entry_file = f"index{suffix}"
 

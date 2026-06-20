@@ -1,7 +1,7 @@
 "use client";
 
 import { useIDEStore, PipelineEvent, PanelTab, AuditSnapshot, SemgrepFinding, CreateProjectParams, FileNode } from "@/store/ideStore";
-import { streamGenerate, sendChatPrompt, ChatMessage as ApiChatMessage } from "@/lib/api";
+import { streamGenerate, sendChatPrompt, ChatMessage as ApiChatMessage, getAuthHeaders } from "@/lib/api";
 import { API_BASE } from "@/lib/config";
 import { SUPPORTED_LANGUAGES } from "@/lib/languages";
 import TerminalTab from "@/components/ide/TerminalTab";
@@ -21,6 +21,7 @@ import {
   RotateCw,
   Globe,
   File,
+  ExternalLink,
 } from "lucide-react";
 import { useRef, useEffect, useState, FormEvent } from "react";
 
@@ -325,9 +326,39 @@ function AuditTrailPanel() {
 
 // ── Web Preview Panel ─────────────────────────────────────────────────────────
 function WebPreviewPanel() {
+  const { terminalSessionId } = useIDEStore();
   const [urlInput, setUrlInput] = useState("http://localhost:3001");
   const [iframeUrl, setIframeUrl] = useState("http://localhost:3001");
   const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const fetchPorts = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/terminal/${terminalSessionId}/ports`, {
+          headers: getAuthHeaders()
+        });
+        if (response.ok && active) {
+          const data = await response.json();
+          const mappings = data.port_mappings || {};
+          const hostPort = mappings["3000/tcp"];
+          if (hostPort) {
+            const url = `http://localhost:${hostPort}`;
+            setUrlInput(url);
+            setIframeUrl(url);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch terminal ports:", err);
+      }
+    };
+    if (terminalSessionId) {
+      fetchPorts();
+    }
+    return () => {
+      active = false;
+    };
+  }, [terminalSessionId]);
 
   const handleRefresh = () => {
     setKey(k => k + 1);
@@ -342,6 +373,7 @@ function WebPreviewPanel() {
     }
     setIframeUrl(target);
   };
+
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", background: "#0d1117" }}>
@@ -375,6 +407,29 @@ function WebPreviewPanel() {
         >
           <RotateCw size={12} />
         </button>
+
+        <a
+          href={iframeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in new tab"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            padding: 4,
+            borderRadius: 4,
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "var(--bg-highlight)"}
+          onMouseLeave={e => e.currentTarget.style.background = "none"}
+        >
+          <ExternalLink size={12} />
+        </a>
+
 
         <form onSubmit={handleGo} style={{ flex: 1, display: "flex" }}>
           <input

@@ -923,6 +923,18 @@ async def run_code(request: RunRequest, current_user: dict = Depends(get_current
         }
 
 
+@app.get("/api/terminal/{session_id}/ports")
+async def get_terminal_ports(session_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Returns active port mappings for a given interactive Docker PTY terminal session.
+    """
+    session = _terminal_sessions.get(session_id)
+    if not session:
+        return {"port_mappings": {}}
+    return {"port_mappings": session.port_mappings}
+
+
+
 class RenameProjectRequest(BaseModel):
     new_id: str
 

@@ -673,6 +673,17 @@ export default function BottomPanel() {
     addEvent({ type: "user",   message: prompt });
     addEvent({ type: "system", message: "Connecting to CodeSentinel pipeline…" });
 
+    // Find all files mentioned in prompt
+    const mentionedFiles = new Set<string>();
+    const bracketMatches = prompt.matchAll(/@\[([^\]]+)\]/g);
+    for (const match of bracketMatches) {
+      mentionedFiles.add(match[1].toLowerCase());
+    }
+    const wordMatches = prompt.matchAll(/@([a-zA-Z0-9_\-\.]+)/g);
+    for (const match of wordMatches) {
+      mentionedFiles.add(match[1].toLowerCase());
+    }
+
     const projectNode = fileTree.find(n => n.id === activeProjectId);
     const filesMap: Record<string, string> = {};
     const extractFiles = (node: FileNode) => {
@@ -682,10 +693,15 @@ export default function BottomPanel() {
           relativePath !== "security_report.md" &&
           !relativePath.startsWith(".sentinel/")
         ) {
-          if (relativePath === selectedFileRelativePath && shouldClearCurrentFile) {
-            filesMap[relativePath] = "";
-          } else {
-            filesMap[relativePath] = node.content ?? "";
+          const isSelectedFile = relativePath === selectedFileRelativePath;
+          const isMentioned = mentionedFiles.has(relativePath.toLowerCase()) || mentionedFiles.has(node.name.toLowerCase());
+          
+          if (isSelectedFile || isMentioned) {
+            if (relativePath === selectedFileRelativePath && shouldClearCurrentFile) {
+              filesMap[relativePath] = "";
+            } else {
+              filesMap[relativePath] = node.content ?? "";
+            }
           }
         }
       } else if (node.children) {
@@ -890,7 +906,7 @@ export default function BottomPanel() {
 
     const lowerPrompt = prompt.toLowerCase();
     const hasMentionUpdate = lowerPrompt.includes("update this current code");
-    const hasMentionFilePattern = /@\[[^\]]+\]/.test(prompt);
+    const hasMentionFilePattern = /@\[[^\]]+\]/.test(prompt) || /@[a-zA-Z0-9_\-\.]+/.test(prompt);
 
     if (selectedFileRelativePath && currentContent.trim().length > 0 && (hasMentionUpdate || hasMentionFilePattern)) {
       // Code is present in current file, we must confirm from the user

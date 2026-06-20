@@ -709,6 +709,27 @@ export default function Home() {
         {/* ── Screenshots Gallery ── */}
         <ScreenshotsShowcase />
 
+        {/* ── Demo Video Showcase ── */}
+        <section className="hp-section hp-video-section">
+          <div className="hp-fade-up">
+            <div className="hp-eyebrow">Interactive Demo</div>
+            <h2 className="hp-h2">
+              See CodeSentinel <span>in Action</span>
+            </h2>
+            <p className="hp-lead" style={{ maxWidth: "700px", margin: "0 auto" }}>
+              Watch how our multi-agent DevSecOps pipeline coordinates developer, execution, and security scanner agents to write, test, and patch code autonomously.
+            </p>
+          </div>
+          <div className="hp-video-wrapper hp-fade-up">
+            <iframe
+              src="https://drive.google.com/file/d/1Gbbkl-GmEjGqYXzjmH2GwPw13Hx7kAag/preview"
+              className="hp-video-iframe"
+              allow="autoplay; encrypted-media"
+              allowFullScreen
+            />
+          </div>
+        </section>
+
         {/* ── Features ── */}
         <section id="features" className="hp-section">
           <div className="hp-fade-up">

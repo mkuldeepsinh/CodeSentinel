@@ -20,6 +20,7 @@ import {
   Zap,
   RotateCw,
   Globe,
+  File,
 } from "lucide-react";
 import { useRef, useEffect, useState, FormEvent } from "react";
 
@@ -439,6 +440,23 @@ export default function BottomPanel() {
   const [confirmData, setConfirmData] = useState<{ prompt: string; fileRelativePath: string } | null>(null);
   const [chatMode, setChatMode] = useState<"pipeline" | "chat">("pipeline");
   const [terminalMounted, setTerminalMounted] = useState<boolean>(false);
+
+  // File suggestion states
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestionTriggerIdx, setSuggestionTriggerIdx] = useState(-1);
+
+  // Click outside suggestions list to close it
+  useEffect(() => {
+    const handleWindowClick = () => {
+      setShowSuggestions(false);
+    };
+    if (showSuggestions) {
+      window.addEventListener("click", handleWindowClick);
+    }
+    return () => window.removeEventListener("click", handleWindowClick);
+  }, [showSuggestions]);
 
   // Keep terminal mounted after the first time it is opened or code is run
   useEffect(() => {
@@ -883,7 +901,102 @@ export default function BottomPanel() {
     }
   };
 
+  // File suggestion support
+  const checkSuggestions = (text: string, selectionStart: number | null) => {
+    if (selectionStart === null) return;
+    const textBeforeCursor = text.slice(0, selectionStart);
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+    if (lastAtIndex !== -1) {
+      const query = textBeforeCursor.slice(lastAtIndex + 1);
+      // Ensure there are no spaces or brackets in the query
+      if (!query.includes(" ") && !query.includes("[") && !query.includes("]")) {
+        const projectNode = fileTree.find(n => n.id === activeProjectId);
+        const allFiles: string[] = [];
+        const recurse = (nodes: FileNode[]) => {
+          for (const node of nodes) {
+            if (node.type === "file" && node.name !== "security_report.md" && node.name !== ".sentinel") {
+              allFiles.push(node.name);
+            }
+            if (node.children) recurse(node.children);
+          }
+        };
+        if (projectNode && projectNode.children) {
+          recurse(projectNode.children);
+        } else {
+          recurse(fileTree);
+        }
+        
+        const filtered = Array.from(new Set(allFiles)).filter(name =>
+          name.toLowerCase().includes(query.toLowerCase())
+        );
+
+        if (filtered.length > 0) {
+          setSuggestions(filtered);
+          setShowSuggestions(true);
+          setSuggestionTriggerIdx(lastAtIndex);
+          return;
+        }
+      }
+    }
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setSuggestionTriggerIdx(-1);
+  };
+
+  const insertSuggestion = (file: string) => {
+    if (suggestionTriggerIdx === -1) return;
+    const textBeforeTrigger = currentPrompt.slice(0, suggestionTriggerIdx);
+    const textAfterCursor = currentPrompt.slice(inputRef.current?.selectionStart ?? currentPrompt.length);
+    const updatedText = `${textBeforeTrigger}@[${file}]${textAfterCursor}`;
+    setCurrentPrompt(updatedText);
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setSuggestionTriggerIdx(-1);
+    
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        const cursorPosition = textBeforeTrigger.length + file.length + 3; // +3 for @[ and ]
+        inputRef.current.setSelectionRange(cursorPosition, cursorPosition);
+      }
+    }, 10);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setCurrentPrompt(val);
+    checkSuggestions(val, e.target.selectionStart);
+  };
+
+  const handleInputSelect = (e: React.SyntheticEvent<HTMLInputElement>) => {
+    const target = e.currentTarget;
+    checkSuggestions(target.value, target.selectionStart);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showSuggestions && suggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSuggestionIndex(prev => (prev + 1) % suggestions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSuggestionIndex(prev => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertSuggestion(suggestions[suggestionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSuggestions(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -1033,7 +1146,7 @@ export default function BottomPanel() {
             </div>
 
             {/* Prompt bar */}
-            <form className="cli-prompt-bar" onSubmit={handleSubmit}>
+            <form className="cli-prompt-bar" onSubmit={handleSubmit} style={{ position: "relative" }}>
               <span className="cli-prompt-prefix">$›</span>
 
               {/* Segmented Mode Selector */}
@@ -1097,7 +1210,8 @@ export default function BottomPanel() {
                     : (chatMode === "chat" ? "Ask CodeSentinel anything (bypass pipeline)…" : "Describe the code to generate and secure…")
                 }
                 value={currentPrompt}
-                onChange={e => setCurrentPrompt(e.target.value)}
+                onChange={handleInputChange}
+                onSelect={handleInputSelect}
                 onKeyDown={handleKeyDown}
                 disabled={isStreaming}
                 autoComplete="off"
@@ -1152,6 +1266,51 @@ export default function BottomPanel() {
                   : <Send    size={13} />
                 }
               </button>
+
+              {showSuggestions && suggestions.length > 0 && (
+                <div 
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 8px)",
+                    left: 120, // offset past prefix & select button
+                    background: "var(--bg-overlay, #1f2335)",
+                    border: "1px solid var(--border-default, #3b4261)",
+                    borderRadius: 6,
+                    boxShadow: "0 -4px 20px rgba(0,0,0,0.5)",
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    zIndex: 1000,
+                    minWidth: 200,
+                    padding: "4px 0",
+                  }}
+                >
+                  {suggestions.map((file, idx) => {
+                    const isSelected = idx === suggestionIndex;
+                    return (
+                      <div
+                        key={file}
+                        onClick={() => insertSuggestion(file)}
+                        style={{
+                          padding: "6px 12px",
+                          fontSize: 12,
+                          color: isSelected ? "var(--text-bright, #c0caf5)" : "var(--text-secondary, #a9b1d6)",
+                          background: isSelected ? "rgba(122, 162, 247, 0.15)" : "transparent",
+                          cursor: "pointer",
+                          fontFamily: "var(--font-mono)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                        onMouseEnter={() => setSuggestionIndex(idx)}
+                      >
+                        <File size={13} style={{ color: "var(--accent-blue)" }} />
+                        <span>{file}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </form>
           </>
         )}

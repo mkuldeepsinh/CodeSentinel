@@ -23,7 +23,7 @@ export default function StatusBar() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectLang, setNewProjectLang] = useState("python");
+  const newProjectLang = "javascript";
   const modalRef = useRef<HTMLDivElement>(null);
 
   // Close selector modal on ESC key
@@ -371,29 +371,7 @@ export default function StatusBar() {
                     autoFocus
                   />
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <label style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Language Mode</label>
-                  <select
-                    value={newProjectLang}
-                    onChange={e => setNewProjectLang(e.target.value)}
-                    style={{
-                      background: "var(--bg-base, #1a1b26)",
-                      border: "1px solid var(--border-default)",
-                      borderRadius: 4,
-                      color: "var(--text-secondary)",
-                      fontSize: 12,
-                      padding: "5px 8px",
-                      outline: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
-                    <option value="typescript">TypeScript</option>
-                    <option value="go">Go</option>
-                    <option value="rust">Rust</option>
-                  </select>
-                </div>
+
                 <div style={{ display: "flex", gap: 8, marginTop: 4, justifyContent: "flex-end" }}>
                   <button
                     type="button"

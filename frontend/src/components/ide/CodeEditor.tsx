@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useEffect } from "react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { tokyoNight } from "@uiw/codemirror-theme-tokyo-night";
 import { python } from "@codemirror/lang-python";
@@ -113,6 +113,24 @@ const BASIC_SETUP = {
 // ── CodeEditor ────────────────────────────────────────────────────────────────
 export default function CodeEditor({ tab }: { tab: Tab }) {
   const { updateTabContent, setCursor } = useIDEStore();
+
+  // Listen for Format Document keyboard shortcut (Shift+Alt+F)
+  useEffect(() => {
+    const handleShortcut = async (e: KeyboardEvent) => {
+      if (e.shiftKey && e.altKey && (e.key === "F" || e.key === "f")) {
+        e.preventDefault();
+        try {
+          const { formatCode } = await import("@/lib/formatter");
+          const formatted = await formatCode(tab.content, tab.language);
+          updateTabContent(tab.id, formatted);
+        } catch (err) {
+          console.error("Format shortcut error:", err);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [tab.id, tab.content, tab.language, updateTabContent]);
 
   const handleChange = useCallback(
     (value: string) => updateTabContent(tab.id, value),

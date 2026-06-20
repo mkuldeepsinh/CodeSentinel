@@ -115,6 +115,7 @@ function EditorToolbar({
     isRunningCode,
     setIsRunningCode,
     sendTerminalInput,
+    updateTabContent,
   } = useIDEStore();
 
   const hasContent = tab.content.trim().length > 0;
@@ -126,6 +127,17 @@ function EditorToolbar({
     setScanRequest({ code: tab.content, language: tab.language });
     setPanelOpen(true);
     setActivePanelTab("codesentinel");
+  };
+
+  const handleFormat = async () => {
+    if (!hasContent || isStreaming || isLive) return;
+    try {
+      const { formatCode } = await import("@/lib/formatter");
+      const formatted = await formatCode(tab.content, tab.language);
+      updateTabContent(tab.id, formatted);
+    } catch (err) {
+      console.error("Formatting failed:", err);
+    }
   };
 
   const handleRun = () => {
@@ -294,6 +306,46 @@ function EditorToolbar({
               Run Code
             </>
           )}
+        </button>
+
+        <button
+          id="format-code-btn"
+          onClick={handleFormat}
+          disabled={isStreaming}
+          title="Format Code using Prettier (Alt+Shift+F)"
+          style={{
+            display:      "flex",
+            alignItems:   "center",
+            gap:          5,
+            fontSize:     11,
+            padding:      "3px 10px",
+            borderRadius: 5,
+            border:       "1px solid rgba(122,162,247,0.2)",
+            background:   isStreaming ? "none" : "rgba(122,162,247,0.04)",
+            color:        isStreaming ? "var(--text-disabled)" : "var(--text-secondary)",
+            cursor:       isStreaming ? "not-allowed" : "pointer",
+            transition:   "all 0.15s ease",
+            fontFamily:   "var(--font-ui)",
+          }}
+          onMouseEnter={(e) => {
+            if (!isStreaming) {
+              e.currentTarget.style.background = "rgba(122,162,247,0.1)";
+              e.currentTarget.style.color = "var(--text-bright)";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!isStreaming) {
+              e.currentTarget.style.background = "rgba(122,162,247,0.04)";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <line x1="21" x2="3" y1="6" y2="6"/>
+            <line x1="15" x2="3" y1="12" y2="12"/>
+            <line x1="17" x2="3" y1="18" y2="18"/>
+          </svg>
+          Format
         </button>
 
         <button

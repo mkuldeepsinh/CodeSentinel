@@ -746,210 +746,212 @@ export default function Sidebar() {
             <span>CODESENTINEL</span>
           </div>
 
-          {/* FILES section — active project tree */}
-          <div style={{
-            padding: "4px 12px 2px",
-            fontSize: 11,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.07em",
-            color: "var(--text-muted)",
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            userSelect: "none",
-            flexShrink: 0,
-          }}>
-            <ChevronDown size={12} />
-            <span style={{ flex: 1 }}>Files</span>
-            {activeProjectId && (
-              <div style={{ display: "flex", gap: 2 }}>
-                <button
-                  title="New file"
-                  onClick={() => {
-                    setCreatingNodeId(activeProjectId);
-                    setCreatingType("file");
-                    setCreatingName("");
-                  }}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
-                    display: "flex", alignItems: "center",
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
-                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
-                >
-                  <Plus size={12} />
-                </button>
-                <button
-                  title="New folder"
-                  onClick={() => {
-                    setCreatingNodeId(activeProjectId);
-                    setCreatingType("folder");
-                    setCreatingName("");
-                  }}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
-                    display: "flex", alignItems: "center",
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
-                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
-                >
-                  <FolderPlus size={12} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="file-tree" style={{ flex: 1, overflowY: "auto" }}>
-            {creatingNodeId === activeProjectId && (
-              <form onSubmit={handleInlineSubmit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px 4px 22px" }}>
-                {creatingType === "folder" 
-                  ? <Folder size={14} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} /> 
-                  : <FileIcon name={creatingName} />
-                }
-                <input
-                  id="inline-creation-input"
-                  placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
-                  value={creatingName}
-                  onChange={e => setCreatingName(e.target.value)}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      if (!creatingName.trim()) {
-                        setCreatingNodeId(null);
-                        setCreatingType(null);
-                      }
-                    }, 200);
-                  }}
-                  style={{
-                    background: "var(--bg-overlay)",
-                    border: "1px solid var(--accent-blue)",
-                    borderRadius: 4,
-                    color: "var(--text-primary)",
-                    fontSize: 12,
-                    padding: "1px 6px",
-                    outline: "none",
-                    width: "100%",
-                    fontFamily: "var(--font-mono)",
-                  }}
-                  autoFocus
-                />
-              </form>
-            )}
-
-            {!activeProjectId ? (
+          {activeProjectId ? (
+            <>
+              {/* FILES section — active project tree */}
               <div style={{
-                padding: "24px 16px",
+                padding: "4px 12px 2px",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: "var(--text-muted)",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                userSelect: "none",
+                flexShrink: 0,
+              }}>
+                <ChevronDown size={12} />
+                <span style={{ flex: 1 }}>Files</span>
+                <div style={{ display: "flex", gap: 2 }}>
+                  <button
+                    title="New file"
+                    onClick={() => {
+                      setCreatingNodeId(activeProjectId);
+                      setCreatingType("file");
+                      setCreatingName("");
+                    }}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                      display: "flex", alignItems: "center",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                    onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                  >
+                    <Plus size={12} />
+                  </button>
+                  <button
+                    title="New folder"
+                    onClick={() => {
+                      setCreatingNodeId(activeProjectId);
+                      setCreatingType("folder");
+                      setCreatingName("");
+                    }}
+                    style={{
+                      background: "none", border: "none", cursor: "pointer",
+                      color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                      display: "flex", alignItems: "center",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                    onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                  >
+                    <FolderPlus size={12} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="file-tree" style={{ flex: 1, overflowY: "auto" }}>
+                {creatingNodeId === activeProjectId && (
+                  <form onSubmit={handleInlineSubmit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px 4px 22px" }}>
+                    {creatingType === "folder" 
+                      ? <Folder size={14} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} /> 
+                      : <FileIcon name={creatingName} />
+                    }
+                    <input
+                      id="inline-creation-input"
+                      placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
+                      value={creatingName}
+                      onChange={e => setCreatingName(e.target.value)}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (!creatingName.trim()) {
+                            setCreatingNodeId(null);
+                            setCreatingType(null);
+                          }
+                        }, 200);
+                      }}
+                      style={{
+                        background: "var(--bg-overlay)",
+                        border: "1px solid var(--accent-blue)",
+                        borderRadius: 4,
+                        color: "var(--text-primary)",
+                        fontSize: 12,
+                        padding: "1px 6px",
+                        outline: "none",
+                        width: "100%",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                      autoFocus
+                    />
+                  </form>
+                )}
+
+                {fileTree.filter(node => node.id === activeProjectId).length === 0 && !creatingNodeId ? (
+                  <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
+                    Files appear here after the pipeline completes.
+                  </div>
+                ) : (
+                  fileTree
+                    .filter(node => node.id === activeProjectId)
+                    .map(node => (
+                      <TreeNode 
+                        key={node.id} 
+                        node={node} 
+                        depth={0} 
+                        creatingNodeId={creatingNodeId}
+                        setCreatingNodeId={setCreatingNodeId}
+                        creatingType={creatingType}
+                        setCreatingType={setCreatingType}
+                        creatingName={creatingName}
+                        setCreatingName={setCreatingName}
+                        handleInlineSubmit={handleInlineSubmit}
+                      />
+                    ))
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{
+              padding: "24px 16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+              color: "var(--text-secondary)",
+              fontSize: 12,
+            }}>
+              <div style={{
+                background: "rgba(122, 162, 247, 0.05)",
+                border: "1px dashed var(--border-default, #3b4261)",
+                borderRadius: 6,
+                padding: 16,
+                textAlign: "center",
                 display: "flex",
                 flexDirection: "column",
-                gap: 16,
-                color: "var(--text-secondary)",
-                fontSize: 12,
+                alignItems: "center",
+                gap: 8,
               }}>
-                <div style={{
-                  background: "rgba(122, 162, 247, 0.05)",
-                  border: "1px dashed var(--border-default, #3b4261)",
-                  borderRadius: 6,
-                  padding: 16,
-                  textAlign: "center",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 8,
-                }}>
-                  <FolderOpen size={24} style={{ color: "var(--accent-yellow)", opacity: 0.8 }} />
-                  <div style={{ fontWeight: 600, color: "var(--text-bright, #c0caf5)" }}>No Project Selected</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
-                    Select an existing workspace project or create a new one to start coding.
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <button
-                    onClick={() => {
-                      setProjectSelectorMode('list');
-                      setProjectSelectorOpen(true);
-                    }}
-                    style={{
-                      background: "var(--accent-blue, #7aa2f7)",
-                      border: "none",
-                      color: "#fff",
-                      borderRadius: 4,
-                      padding: "8px 12px",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "#89aefd"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent-blue, #7aa2f7)"; }}
-                  >
-                    <FolderOpen size={14} />
-                    Open Project
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setProjectSelectorMode('create');
-                      setProjectSelectorOpen(true);
-                    }}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--border-default, #3b4261)",
-                      color: "var(--text-secondary)",
-                      borderRadius: 4,
-                      padding: "8px 12px",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
-                      e.currentTarget.style.borderColor = "var(--text-muted)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.borderColor = "var(--border-default, #3b4261)";
-                    }}
-                  >
-                    <Plus size={14} />
-                    Create Project
-                  </button>
+                <FolderOpen size={24} style={{ color: "var(--accent-yellow)", opacity: 0.8 }} />
+                <div style={{ fontWeight: 600, color: "var(--text-bright, #c0caf5)" }}>No Project Selected</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  Select an existing workspace project or create a new one to start coding.
                 </div>
               </div>
-            ) : fileTree.filter(node => node.id === activeProjectId).length === 0 && !creatingNodeId ? (
-              <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
-                Files appear here after the pipeline completes.
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    setProjectSelectorMode('list');
+                    setProjectSelectorOpen(true);
+                  }}
+                  style={{
+                    background: "var(--accent-blue, #7aa2f7)",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 4,
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "#89aefd"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent-blue, #7aa2f7)"; }}
+                >
+                  <FolderOpen size={14} />
+                  Open Project
+                </button>
+
+                <button
+                  onClick={() => {
+                    setProjectSelectorMode('create');
+                    setProjectSelectorOpen(true);
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border-default, #3b4261)",
+                    color: "var(--text-secondary)",
+                    borderRadius: 4,
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                    e.currentTarget.style.borderColor = "var(--text-muted)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.borderColor = "var(--border-default, #3b4261)";
+                  }}
+                >
+                  <Plus size={14} />
+                  Create Project
+                </button>
               </div>
-            ) : (
-              fileTree
-                .filter(node => node.id === activeProjectId)
-                .map(node => (
-                  <TreeNode 
-                    key={node.id} 
-                    node={node} 
-                    depth={0} 
-                    creatingNodeId={creatingNodeId}
-                    setCreatingNodeId={setCreatingNodeId}
-                    creatingType={creatingType}
-                    setCreatingType={setCreatingType}
-                    creatingName={creatingName}
-                    setCreatingName={setCreatingName}
-                    handleInlineSubmit={handleInlineSubmit}
-                  />
-                ))
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
 

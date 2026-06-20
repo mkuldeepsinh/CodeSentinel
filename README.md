@@ -26,7 +26,7 @@ Traditional software pipelines rely on passive warnings or manual audits. CodeSe
 
 Below is the walk-through demo showing CodeSentinel analyzing a coding requirement, compiling the source in Docker, running Semgrep, identifying vulnerabilities, and executing self-healing synthesizer cycles.
 
-<video src="frontend/public/demo-video.mp4" width="100%" height="auto" controls loop autoplay muted></video>
+<video src="https://github.com/mkuldeepsinh/CodeSentinel/raw/main/frontend/public/demo-video.mp4" width="100%" height="auto" controls loop autoplay muted></video>
 
 ---
 

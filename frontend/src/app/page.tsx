@@ -342,29 +342,29 @@ function TypingCursor() {
 /* ── Screenshots Showcase Component ───────────────────────── */
 const SCREENSHOTS_TOUR = [
   {
-    id: "welcome",
-    tag: "IDE welcome",
+    id: "chat",
+    tag: "AI Assistant",
     tagClass: "hp-tag-ide",
     src: "/ide-tour-1.png",
-    title: "Integrated <span>DevSecOps Workspace</span>",
-    desc: "Welcome to CodeSentinel's AI-native IDE. Start coding from a prompt or explore existing codebase structures securely from a single workspace.",
+    title: "Interactive <span>Coding Companion</span>",
+    desc: "Leverage a built-in AI assistant to chat and start development tasks. Directly prompt to create files, debug code, or trigger the automated multi-agent pipeline.",
     highlights: [
-      { label: "AI Coding Companion", sub: "Chat and prompt-to-code interfaces built-in" },
-      { label: "File Explorer", sub: "Navigate backend, frontend, and pipeline modules" },
-      { label: "Unified Console", sub: "Real-time logs and process tracking" }
+      { label: "Prompt to Code", sub: "Instantly translate natural language into projects" },
+      { label: "Dual Chat Modes", sub: "Seamlessly toggle between general chat and pipeline execution" },
+      { label: "Error Capture", sub: "Catches compilation or syntax exceptions instantly" }
     ]
   },
   {
-    id: "prompt",
-    tag: "Prompt mode",
+    id: "editor",
+    tag: "Code Editor",
     tagClass: "hp-tag-code",
     src: "/ide-tour-2.png",
-    title: "Isolated <span>Sandbox Execution</span>",
-    desc: "Describe requirements in natural language. CodeSentinel compiles, executes, and runs test pipelines inside network-isolated, ephemeral E2B microVMs.",
+    title: "Modern <span>DevSecOps Workspace</span>",
+    desc: "Review, format, and execute generated source files from a unified editor. Control development cycles using actions like Run Code, Prettier Formatting, and Scan & Secure.",
     highlights: [
-      { label: "E2B microVMs", sub: "Absolute sandbox security protecting the host" },
-      { label: "Zero-config setup", sub: "Automatic node dependencies and environment resolution" },
-      { label: "Live Terminal", sub: "Real-time stdin/stdout feedback streams" }
+      { label: "Advanced Code Actions", sub: "Integrated Prettier formatting and runtime controls" },
+      { label: "Pipeline Progress Tracker", sub: "Visual feedback of all agent states (Triage, Synthesizer, etc.)" },
+      { label: "Vulnerability Scorecard", sub: "Live security score reflecting codebase health" }
     ]
   },
   {
@@ -372,51 +372,25 @@ const SCREENSHOTS_TOUR = [
     tag: "Live Loop",
     tagClass: "hp-tag-live",
     src: "/ide-tour-3.png",
-    title: "LangGraph <span>Security Triaging</span>",
-    desc: "LangGraph orchestrates static analysis scans automatically. The Triage Agent analyzes results to calculate security scores from 0 to 100.",
+    title: "Real-Time <span>Agent Trace Logs</span>",
+    desc: "Audit full execution logs streamed directly from sandbox runtimes. Follow compile, test, and security analysis steps as they happen line-by-line.",
     highlights: [
-      { label: "Static Analysis (SAST)", sub: "Integrated Semgrep rules scanning for OWASP top 10 & CWEs" },
-      { label: "Intelligent Triage", sub: "AI filtering of false positives and duplicates" },
-      { label: "Security Scorecard", sub: "Visual progression of code security metrics" }
+      { label: "Multi-Agent Trace", sub: "Server-Sent Events streaming from background compiler agents" },
+      { label: "Semgrep SAST Integration", sub: "Scan logs indicating CWE issues and security verdicts" },
+      { label: "Triage & Score Output", sub: "Live score verification and actionable fix summaries" }
     ]
   },
   {
-    id: "logs",
-    tag: "Audit Logs",
+    id: "terminal",
+    tag: "Docker Terminal",
     tagClass: "hp-tag-scan",
     src: "/ide-tour-4.png",
-    title: "Real-Time <span>Pipeline Trace</span>",
-    desc: "Full transparency. Watch the agents run commands, compile binaries, and check for security vulnerabilities line-by-line.",
+    title: "Isolated <span>Docker PTY Terminal</span>",
+    desc: "Access the runtime container directly from an interactive command terminal. Auto-loads code changes and manages secure port forwarding for local testing.",
     highlights: [
-      { label: "Server-Sent Events", sub: "Real-time log streams directly from agents" },
-      { label: "Error Tracking", sub: "Automatic capture of stack traces and crash logs" },
-      { label: "Detailed Audit Trail", sub: "Forensic records of every pipeline execution state" }
-    ]
-  },
-  {
-    id: "patching",
-    tag: "Auto-Patching",
-    tagClass: "hp-tag-live",
-    src: "/ide-tour-5.png",
-    title: "Feedback <span>Repair Loop</span>",
-    desc: "Vulnerable code triggers the Synthesizer Agent, which rewrites code, runs it again in E2B, and performs another Semgrep scan until secure.",
-    highlights: [
-      { label: "Synthesizer Patching", sub: "Automated code repair targeting detected CVEs" },
-      { label: "Iterative Validation", sub: "Loop runs up to 3 times to achieve maximum score" },
-      { label: "Functionality Guard", sub: "Code functionality is verified on every patch" }
-    ]
-  },
-  {
-    id: "report",
-    tag: "Audit Report",
-    tagClass: "hp-tag-scan",
-    src: "/ide-tour-6.png",
-    title: "Structured <span>Triage Reports</span>",
-    desc: "Comprehensive, machine-readable security reports documenting the full lifecycle of every vulnerability from detection to patch.",
-    highlights: [
-      { label: "Vulnerability Mapping", sub: "Precise line ranges, descriptions, and CWE tags" },
-      { label: "Actionable Remediation", sub: "Detailed audit documentation of the fix" },
-      { label: "Developer Export", sub: "Download clean code along with security audit trail" }
+      { label: "Ephemeral Container Shell", sub: "Fully isolated, secure Docker workspace for code execution" },
+      { label: "Port Forwarding Active", sub: "Forwards ports dynamically (e.g. port 3000 to host 3002)" },
+      { label: "Live Code Synchronization", sub: "Auto-synchronizes editor file changes into the container PTY" }
     ]
   }
 ];

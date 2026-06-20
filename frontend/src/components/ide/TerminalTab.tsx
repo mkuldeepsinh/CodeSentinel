@@ -42,7 +42,10 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
   const fitRef       = useRef<FitAddonInstance | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
 
-  const { activeProjectId, projects, terminalRunRequest, setTerminalRunRequest } = useIDEStore();
+  const { 
+    activeProjectId, projects, terminalRunRequest, setTerminalRunRequest,
+    terminalInputToSend, clearTerminalInput 
+  } = useIDEStore();
 
   const project = projects.find(p => p.id === activeProjectId);
   const lang = (project?.language || "javascript").toLowerCase();
@@ -71,6 +74,17 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
       }
     }
   }, [terminalRunRequest, setTerminalRunRequest]);
+
+  // Listen for manual inputs (like stop code Ctrl+C signal) to forward to terminal PTY
+  useEffect(() => {
+    if (terminalInputToSend) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(terminalInputToSend);
+      }
+      clearTerminalInput();
+    }
+  }, [terminalInputToSend, clearTerminalInput]);
 
   useEffect(() => {
     if (!containerRef.current || typeof window === "undefined") return;
@@ -182,17 +196,24 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
 
       ws.onmessage = (evt) => {
         if (!active) return;
-        term.write(typeof evt.data === "string" ? evt.data : "");
+        let data = typeof evt.data === "string" ? evt.data : "";
+        if (data.includes("__RUN_COMPLETE__")) {
+          data = data.replace(/__RUN_COMPLETE__/g, "");
+          useIDEStore.getState().setIsRunningCode(false);
+        }
+        term.write(data);
       };
 
       ws.onerror = () => {
         if (!active) return;
+        useIDEStore.getState().setIsRunningCode(false);
         term.write(
           "\r\n\x1b[31m[CodeSentinel] WebSocket error — is the backend running?\x1b[0m\r\n"
         );
       };
 
       ws.onclose = () => {
+        useIDEStore.getState().setIsRunningCode(false);
         if (active) {
           term.write("\r\n\x1b[33m[CodeSentinel] Terminal session closed.\x1b[0m\r\n");
         }

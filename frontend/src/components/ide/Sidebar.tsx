@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Folder,
   FolderOpen,
+  FolderPlus,
   File,
   FileCode,
   FileText,
@@ -51,7 +52,29 @@ function FileIcon({ name, language }: { name: string; language?: string }) {
 }
 
 // ── Tree Node ─────────────────────────────────────────────────────────────────
-function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
+interface TreeNodeProps {
+  node: FileNode;
+  depth: number;
+  creatingNodeId: string | null;
+  setCreatingNodeId: (v: string | null) => void;
+  creatingType: "file" | "folder" | null;
+  setCreatingType: (v: "file" | "folder" | null) => void;
+  creatingName: string;
+  setCreatingName: (v: string) => void;
+  handleInlineSubmit: (e: React.FormEvent) => void;
+}
+
+function TreeNode({ 
+  node, 
+  depth,
+  creatingNodeId,
+  setCreatingNodeId,
+  creatingType,
+  setCreatingType,
+  creatingName,
+  setCreatingName,
+  handleInlineSubmit
+}: TreeNodeProps) {
   const { selectedFileId, expandedFolders, openFile, toggleFolder } = useIDEStore();
   const isExpanded = expandedFolders.has(node.id);
   const isSelected = selectedFileId === node.id;
@@ -63,7 +86,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [editName, setEditName] = useState(node.name);
   const [isHovered, setIsHovered] = useState(false);
 
-  const isSystemNode = isSentinel || node.name === "security_report.md" || node.id.includes("/.sentinel/") || node.isLive;
+  const isSystemNode = isSentinel || node.name === "security_report.md" || node.name === "agent.md" || node.id.includes("/.sentinel/") || node.isLive;
 
   const handleClick = () => {
     if (isFolder) toggleFolder(node.id);
@@ -166,6 +189,48 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
         {/* Action icons on hover */}
         {isHovered && !isSystemNode && !isEditing && (
           <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", paddingRight: 4, flexShrink: 0 }}>
+            {isFolder && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCreatingNodeId(node.id);
+                    setCreatingType("file");
+                    setCreatingName("");
+                    if (!isExpanded) toggleFolder(node.id);
+                  }}
+                  title="New File"
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                    display: "flex", alignItems: "center",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                >
+                  <Plus size={11} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCreatingNodeId(node.id);
+                    setCreatingType("folder");
+                    setCreatingName("");
+                    if (!isExpanded) toggleFolder(node.id);
+                  }}
+                  title="New Folder"
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                    display: "flex", alignItems: "center",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                >
+                  <FolderPlus size={11} />
+                </button>
+              </>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -207,14 +272,76 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
         )}
       </div>
 
-      {isFolder && isExpanded && node.children?.map(child => (
-        <TreeNode key={child.id} node={child} depth={depth + 1} />
-      ))}
+      {isFolder && isExpanded && (
+        <>
+          {creatingNodeId === node.id && (
+            <div style={{ 
+              paddingLeft: paddingLeft + 14, 
+              display: "flex", 
+              alignItems: "center", 
+              gap: 6, 
+              paddingTop: 2, 
+              paddingBottom: 2 
+            }}>
+              {creatingType === "folder" 
+                ? <Folder size={13} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} /> 
+                : <File size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+              }
+              <form onSubmit={handleInlineSubmit} style={{ flex: 1 }}>
+                <input
+                  id="inline-creation-input"
+                  placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
+                  value={creatingName}
+                  onChange={e => setCreatingName(e.target.value)}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (!creatingName.trim()) {
+                        setCreatingNodeId(null);
+                        setCreatingType(null);
+                      }
+                    }, 200);
+                  }}
+                  style={{
+                    background: "var(--bg-overlay)",
+                    border: "1px solid var(--accent-blue)",
+                    borderRadius: 3,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    padding: "0px 4px",
+                    outline: "none",
+                    width: "110px",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                  autoFocus
+                />
+              </form>
+            </div>
+          )}
+
+          {node.children
+            ?.filter(child => child.name !== ".keep" && child.name !== ".DS_Store")
+            .map(child => (
+              <TreeNode 
+                key={child.id} 
+                node={child} 
+                depth={depth + 1}
+                creatingNodeId={creatingNodeId}
+                setCreatingNodeId={setCreatingNodeId}
+                creatingType={creatingType}
+                setCreatingType={setCreatingType}
+                creatingName={creatingName}
+                setCreatingName={setCreatingName}
+                handleInlineSubmit={handleInlineSubmit}
+              />
+            ))
+          }
+        </>
+      )}
     </>
   );
 }
 
-// ── Score badge for project list ──────────────────────────────────────────────
+// ── Project Item ──────────────────────────────────────────────────────────────
 function ScoreChip({ score }: { score: number }) {
   const color = score >= 80 ? "var(--accent-green)"
     : score >= 50 ? "var(--accent-yellow)"
@@ -304,7 +431,6 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
                 setConfirmDelete(false);
               }
             }}
-            disabled={loading}
             style={{
               background: "var(--accent-red)",
               color: "#fff",
@@ -323,10 +449,8 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
               e.stopPropagation();
               setConfirmDelete(false);
             }}
-            disabled={loading}
             style={{
-              background: "rgba(255,255,255,0.05)",
-              color: "var(--text-muted)",
+              background: "transparent",
               border: "1px solid var(--border-subtle)",
               borderRadius: 3,
               fontSize: 10,
@@ -524,7 +648,7 @@ export default function Sidebar() {
     projects, activeProjectId,
     loadProjects,
     createProject, createFile,
-    setPanelOpen, setActivePanelTab,
+    setProjectSelectorOpen, setProjectSelectorMode,
   } = useIDEStore();
 
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -532,8 +656,16 @@ export default function Sidebar() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectLanguage, setNewProjectLanguage] = useState("python");
 
-  const [isCreatingFile, setIsCreatingFile] = useState(false);
-  const [newFileName, setNewFileName] = useState("");
+  const [creatingNodeId, setCreatingNodeId] = useState<string | null>(null);
+  const [creatingType, setCreatingType] = useState<"file" | "folder" | null>(null);
+  const [creatingName, setCreatingName] = useState("");
+
+  // Focus inline input on trigger
+  useEffect(() => {
+    if (creatingNodeId) {
+      document.getElementById("inline-creation-input")?.focus();
+    }
+  }, [creatingNodeId]);
 
   // Load projects from backend on mount
   useEffect(() => {
@@ -566,25 +698,37 @@ export default function Sidebar() {
     await createProject(name, newProjectLanguage);
   };
 
-  const handleFileSubmit = async (e: React.FormEvent) => {
+  const handleInlineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const name = newFileName.trim();
-    if (!name || !activeProjectId) return;
+    const name = creatingName.trim();
+    if (!name || !activeProjectId || !creatingNodeId) return;
 
-    setIsCreatingFile(false);
-    setNewFileName("");
+    setCreatingNodeId(null);
+    setCreatingName("");
+    setCreatingType(null);
 
+    const parentRelativePath = creatingNodeId
+      .replace(`${activeProjectId}/`, "")
+      .replace(activeProjectId, "");
+
+    let filePath = "";
     let initialContent = "";
-    const ext = name.split(".").pop()?.toLowerCase();
-    if (ext === "py") {
-      initialContent = "# Python file\n";
-    } else if (ext === "js" || ext === "ts" || ext === "tsx" || ext === "jsx") {
-      initialContent = "// JavaScript/TypeScript file\n";
-    } else if (ext === "md") {
-      initialContent = `# ${name}\n`;
+    if (creatingType === "folder") {
+      filePath = parentRelativePath ? `${parentRelativePath}/${name}/.keep` : `${name}/.keep`;
+    } else {
+      filePath = parentRelativePath ? `${parentRelativePath}/${name}` : name;
+      
+      const ext = name.split(".").pop()?.toLowerCase();
+      if (ext === "py") {
+        initialContent = "# Python file\n";
+      } else if (ext === "js" || ext === "ts" || ext === "tsx" || ext === "jsx") {
+        initialContent = "// JavaScript/TypeScript file\n";
+      } else if (ext === "md") {
+        initialContent = `# ${name}\n`;
+      }
     }
 
-    await createFile(activeProjectId, name, initialContent);
+    await createFile(activeProjectId, filePath, initialContent);
   };
 
   const handleRefresh = () => {
@@ -600,145 +744,6 @@ export default function Sidebar() {
         <>
           <div className="sidebar-header">
             <span>CODESENTINEL</span>
-          </div>
-
-          {/* PROJECTS section */}
-          <div style={{
-            padding: "6px 12px 2px",
-            fontSize: 11,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.07em",
-            color: "var(--text-muted)",
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            userSelect: "none",
-          }}>
-            <ChevronDown size={12} />
-            <span style={{ flex: 1 }}>Projects</span>
-
-            {/* Refresh button */}
-            <button
-              title="Refresh projects"
-              onClick={handleRefresh}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
-                display: "flex", alignItems: "center",
-              }}
-            >
-              <RefreshCw
-                size={10}
-                style={isLoadingProjects ? { animation: "spin 1s linear infinite" } : {}}
-              />
-            </button>
-
-            {/* New project button */}
-            <button
-              id="new-project-btn"
-              title="New project"
-              onClick={handleNewProject}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
-                display: "flex", alignItems: "center",
-              }}
-            >
-              <Plus size={12} />
-            </button>
-          </div>
-
-          {/* Project list */}
-          <div style={{ borderBottom: "1px solid var(--border-subtle)", paddingBottom: 6, marginBottom: 4, maxHeight: "220px", overflowY: "auto" }}>
-            {isCreatingProject && (
-              <form onSubmit={handleProjectSubmit} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "5px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Folder size={13} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} />
-                  <input
-                    id="new-project-input"
-                    placeholder="project-name"
-                    value={newProjectName}
-                    onChange={e => setNewProjectName(e.target.value)}
-                    onBlur={() => {
-                      setTimeout(() => {
-                        if (!newProjectName.trim()) setIsCreatingProject(false);
-                      }, 200);
-                    }}
-                    style={{
-                      background: "var(--bg-overlay)",
-                      border: "1px solid var(--accent-blue)",
-                      borderRadius: 4,
-                      color: "var(--text-primary)",
-                      fontSize: 12,
-                      padding: "2px 6px",
-                      outline: "none",
-                      width: "100%",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 19 }}>
-                  <select
-                    value={newProjectLanguage}
-                    onChange={e => setNewProjectLanguage(e.target.value)}
-                    style={{
-                      background: "var(--bg-overlay)",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: 4,
-                      color: "var(--text-secondary)",
-                      fontSize: 10,
-                      padding: "1px 4px",
-                      outline: "none",
-                      cursor: "pointer",
-                      width: "100%",
-                      fontFamily: "var(--font-ui)",
-                    }}
-                  >
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
-                    <option value="typescript">TypeScript</option>
-                    <option value="go">Go</option>
-                    <option value="rust">Rust</option>
-                  </select>
-                  <button
-                    type="submit"
-                    style={{
-                      background: "rgba(200, 122, 83, 0.15)",
-                      border: "1px solid rgba(200, 122, 83, 0.3)",
-                      borderRadius: 4,
-                      color: "var(--accent-blue)",
-                      fontSize: 10,
-                      padding: "1px 6px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {isLoadingProjects && projects.length === 0 ? (
-              <div style={{ padding: "6px 16px", fontSize: 11, color: "var(--text-disabled)" }}>
-                <RefreshCw size={10} style={{ display: "inline", marginRight: 4, animation: "spin 1s linear infinite" }} />
-                Loading projects…
-              </div>
-            ) : projects.length === 0 ? (
-              <div style={{ padding: "6px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
-                No projects yet.
-                <br />
-                Click + to create folder.
-              </div>
-            ) : (
-              projects.map(p => (
-                <ProjectItem
-                  key={p.id}
-                  project={p}
-                  isActive={p.id === activeProjectId}
-                />
-              ))
-            )}
           </div>
 
           {/* FILES section — active project tree */}
@@ -758,37 +763,63 @@ export default function Sidebar() {
             <ChevronDown size={12} />
             <span style={{ flex: 1 }}>Files</span>
             {activeProjectId && (
-              <button
-                title="New file"
-                onClick={() => {
-                  setIsCreatingFile(true);
-                  setTimeout(() => {
-                    document.getElementById("new-file-input")?.focus();
-                  }, 50);
-                }}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
-                  display: "flex", alignItems: "center",
-                }}
-              >
-                <Plus size={12} />
-              </button>
+              <div style={{ display: "flex", gap: 2 }}>
+                <button
+                  title="New file"
+                  onClick={() => {
+                    setCreatingNodeId(activeProjectId);
+                    setCreatingType("file");
+                    setCreatingName("");
+                  }}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                    display: "flex", alignItems: "center",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                >
+                  <Plus size={12} />
+                </button>
+                <button
+                  title="New folder"
+                  onClick={() => {
+                    setCreatingNodeId(activeProjectId);
+                    setCreatingType("folder");
+                    setCreatingName("");
+                  }}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-disabled)", padding: "1px 3px", borderRadius: 3,
+                    display: "flex", alignItems: "center",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "var(--accent-blue)"}
+                  onMouseLeave={e => e.currentTarget.style.color = "var(--text-disabled)"}
+                >
+                  <FolderPlus size={12} />
+                </button>
+              </div>
             )}
           </div>
 
-          <div className="file-tree">
-            {isCreatingFile && (
-              <form onSubmit={handleFileSubmit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px 4px 22px" }}>
-                <FileIcon name={newFileName || "temp.txt"} />
+          <div className="file-tree" style={{ flex: 1, overflowY: "auto" }}>
+            {creatingNodeId === activeProjectId && (
+              <form onSubmit={handleInlineSubmit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px 4px 22px" }}>
+                {creatingType === "folder" 
+                  ? <Folder size={14} style={{ color: "var(--accent-yellow)", flexShrink: 0 }} /> 
+                  : <FileIcon name={creatingName} />
+                }
                 <input
-                  id="new-file-input"
-                  placeholder="filename.py"
-                  value={newFileName}
-                  onChange={e => setNewFileName(e.target.value)}
+                  id="inline-creation-input"
+                  placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
+                  value={creatingName}
+                  onChange={e => setCreatingName(e.target.value)}
                   onBlur={() => {
                     setTimeout(() => {
-                      if (!newFileName.trim()) setIsCreatingFile(false);
+                      if (!creatingName.trim()) {
+                        setCreatingNodeId(null);
+                        setCreatingType(null);
+                      }
                     }, 200);
                   }}
                   style={{
@@ -802,18 +833,121 @@ export default function Sidebar() {
                     width: "100%",
                     fontFamily: "var(--font-mono)",
                   }}
+                  autoFocus
                 />
               </form>
             )}
 
-            {fileTree.length === 0 && !isCreatingFile ? (
+            {!activeProjectId ? (
+              <div style={{
+                padding: "24px 16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                color: "var(--text-secondary)",
+                fontSize: 12,
+              }}>
+                <div style={{
+                  background: "rgba(122, 162, 247, 0.05)",
+                  border: "1px dashed var(--border-default, #3b4261)",
+                  borderRadius: 6,
+                  padding: 16,
+                  textAlign: "center",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                }}>
+                  <FolderOpen size={24} style={{ color: "var(--accent-yellow)", opacity: 0.8 }} />
+                  <div style={{ fontWeight: 600, color: "var(--text-bright, #c0caf5)" }}>No Project Selected</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                    Select an existing workspace project or create a new one to start coding.
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      setProjectSelectorMode('list');
+                      setProjectSelectorOpen(true);
+                    }}
+                    style={{
+                      background: "var(--accent-blue, #7aa2f7)",
+                      border: "none",
+                      color: "#fff",
+                      borderRadius: 4,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#89aefd"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent-blue, #7aa2f7)"; }}
+                  >
+                    <FolderOpen size={14} />
+                    Open Project
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setProjectSelectorMode('create');
+                      setProjectSelectorOpen(true);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--border-default, #3b4261)",
+                      color: "var(--text-secondary)",
+                      borderRadius: 4,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                      e.currentTarget.style.borderColor = "var(--text-muted)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.borderColor = "var(--border-default, #3b4261)";
+                    }}
+                  >
+                    <Plus size={14} />
+                    Create Project
+                  </button>
+                </div>
+              </div>
+            ) : fileTree.filter(node => node.id === activeProjectId).length === 0 && !creatingNodeId ? (
               <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--text-disabled)", lineHeight: 1.5 }}>
                 Files appear here after the pipeline completes.
               </div>
             ) : (
-              fileTree.map(node => (
-                <TreeNode key={node.id} node={node} depth={0} />
-              ))
+              fileTree
+                .filter(node => node.id === activeProjectId)
+                .map(node => (
+                  <TreeNode 
+                    key={node.id} 
+                    node={node} 
+                    depth={0} 
+                    creatingNodeId={creatingNodeId}
+                    setCreatingNodeId={setCreatingNodeId}
+                    creatingType={creatingType}
+                    setCreatingType={setCreatingType}
+                    creatingName={creatingName}
+                    setCreatingName={setCreatingName}
+                    handleInlineSubmit={handleInlineSubmit}
+                  />
+                ))
             )}
           </div>
         </>

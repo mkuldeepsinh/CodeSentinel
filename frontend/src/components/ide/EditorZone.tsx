@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useIDEStore, Tab, FileNode } from "@/store/ideStore";
-import { X, ShieldCheck, Zap, Play, Loader2, Eye, Code } from "lucide-react";
+import { X, ShieldCheck, Zap, Play, Loader2, Eye, Code, Square } from "lucide-react";
 import CodeEditor from "./CodeEditor";
 
 // ── Language dot color ────────────────────────────────────────────────────────
@@ -112,6 +112,9 @@ function EditorToolbar({
     activeProjectId,
     fileTree,
     setTerminalRunRequest,
+    isRunningCode,
+    setIsRunningCode,
+    sendTerminalInput,
   } = useIDEStore();
 
   const hasContent = tab.content.trim().length > 0;
@@ -126,11 +129,19 @@ function EditorToolbar({
   };
 
   const handleRun = () => {
+    if (isRunningCode) {
+      sendTerminalInput("\x03"); // Send Ctrl+C
+      setIsRunningCode(false);
+      return;
+    }
+
     console.log("EditorZone: handleRun clicked. activeProjectId:", activeProjectId);
     if (!hasContent || isStreaming || isLive || !activeProjectId) {
       console.log("EditorZone: handleRun check failed:", { hasContent, isStreaming, isLive, activeProjectId });
       return;
     }
+
+    setIsRunningCode(true);
 
     // Gather project file tree contents
     const projectNode = fileTree.find(n => n.id === activeProjectId);
@@ -168,7 +179,7 @@ function EditorToolbar({
       return `node ${fileName}`;
     };
 
-    const command = getRunCommand(currentRelativePath, tab.language);
+    const command = getRunCommand(currentRelativePath, tab.language) + " ; echo __RUN_COMPLETE__";
 
     // Queue terminal run request
     setTerminalRunRequest({
@@ -252,7 +263,7 @@ function EditorToolbar({
           id="run-code-btn"
           onClick={handleRun}
           disabled={isStreaming}
-          title="Run code inside the E2B Sandbox"
+          title={isRunningCode ? "Stop running code" : "Run code inside the E2B Sandbox"}
           style={{
             display:      "flex",
             alignItems:   "center",
@@ -260,19 +271,29 @@ function EditorToolbar({
             fontSize:     11,
             padding:      "3px 10px",
             borderRadius: 5,
-            border:       "1px solid rgba(158,206,106,0.3)",
-            background:   isStreaming ? "none" : "rgba(158,206,106,0.08)",
-            color:        isStreaming ? "var(--text-disabled)" : "var(--accent-green)",
+            border:       isRunningCode ? "1px solid rgba(217,83,79,0.3)" : "1px solid rgba(158,206,106,0.3)",
+            background:   isStreaming ? "none" : isRunningCode ? "rgba(217,83,79,0.08)" : "rgba(158,206,106,0.08)",
+            color:        isStreaming ? "var(--text-disabled)" : isRunningCode ? "var(--accent-red, #ff7b72)" : "var(--accent-green)",
             cursor:       isStreaming ? "not-allowed" : "pointer",
             transition:   "all 0.15s ease",
             fontFamily:   "var(--font-ui)",
           }}
         >
-          {isStreaming
-            ? <Loader2 size={11} className="animate-spin" />
-            : <Play size={11} />
-          }
-          Run Code
+          {isRunningCode ? (
+            <>
+              <Square size={11} style={{ fill: "currentColor" }} />
+              Stop Code
+            </>
+          ) : (
+            <>
+              {isStreaming ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : (
+                <Play size={11} />
+              )}
+              Run Code
+            </>
+          )}
         </button>
 
         <button

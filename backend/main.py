@@ -532,6 +532,23 @@ async def generate(request: GenerateRequest, current_user: dict = Depends(get_cu
             raise HTTPException(status_code=404, detail="Project not found.")
         resolved_prompt = project_data["prompt"]
         resolved_language = project_data["language"]
+
+    # 1.5. Resolve @agent.md prompt mention if project_id is provided
+    if resolved_project_id and resolved_prompt:
+        pattern = r"(@filename\s*\[agent\.md\]|@agent\.md)"
+        if re.search(pattern, resolved_prompt, re.IGNORECASE):
+            from database import get_latest_generation
+            latest_gen = get_latest_generation(resolved_project_id)
+            agent_md_content = None
+            if latest_gen and latest_gen.get("code"):
+                try:
+                    code_data = json.loads(latest_gen["code"])
+                    if isinstance(code_data, dict) and "files" in code_data:
+                        agent_md_content = code_data["files"].get("agent.md")
+                except Exception as e:
+                    print(f"Error parsing project files for agent.md prompt injection: {e}")
+            if agent_md_content:
+                resolved_prompt = re.sub(pattern, agent_md_content, resolved_prompt, flags=re.IGNORECASE)
         
     # 2. Semantic cache lookup: only for new runs (project_id is None)
     if not request.project_id and resolved_prompt:
@@ -679,7 +696,7 @@ class CreateProjectRequest(BaseModel):
 @app.post("/api/projects")
 async def api_create_project(request: CreateProjectRequest, current_user: dict = Depends(get_current_user)):
     """
-    Creates a new project and initializes it with a README.md.
+    Creates a new project and initializes it with a agent.md.
     """
     existing = get_project(request.id)
     if existing:
@@ -694,10 +711,10 @@ async def api_create_project(request: CreateProjectRequest, current_user: dict =
             user_id=current_user["sub"]
         )
         
-        # Initialize with a default README.md file mapping
+        # Initialize with a default agent.md file mapping
         initial_code = json.dumps({
             "files": {
-                "README.md": f"# {request.name}\n\nThis project folder was manually created.\nDefault language: {request.language}\n"
+                "agent.md": f"# {request.name}\n\nThis project folder was manually created.\nDefault language: {request.language}\n"
             }
         })
         
@@ -928,6 +945,17 @@ async def rename_project_api(project_id: str, request: RenameProjectRequest, cur
     success = rename_project(project_id, new_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found or rename failed.")
+        
+    # Update active PTY terminal session project IDs and container directory paths
+    for session in list(_terminal_sessions.values()):
+        if session.project_id == project_id:
+            session.project_id = new_id
+            if session.container:
+                try:
+                    session.container.exec_run(f"mv /codesentinel/{project_id} /codesentinel/{new_id}")
+                except Exception as e:
+                    print(f"main.py WARNING: Failed to rename container workspace directory: {e}")
+
     return {"status": "success", "new_project_id": new_id}
 
 
@@ -974,7 +1002,23 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
             else:
                 messages.append(AIMessage(content=msg.content))
 
-    messages.append(HumanMessage(content=request.message))
+    resolved_message = request.message
+    pattern = r"(@filename\s*\[agent\.md\]|@agent\.md)"
+    if re.search(pattern, resolved_message, re.IGNORECASE):
+        from database import get_latest_generation
+        latest_gen = get_latest_generation(request.project_id)
+        agent_md_content = None
+        if latest_gen and latest_gen.get("code"):
+            try:
+                code_data = json.loads(latest_gen["code"])
+                if isinstance(code_data, dict) and "files" in code_data:
+                    agent_md_content = code_data["files"].get("agent.md")
+            except Exception as e:
+                print(f"Error parsing project files for agent.md chat injection: {e}")
+        if agent_md_content:
+            resolved_message = re.sub(pattern, agent_md_content, resolved_message, flags=re.IGNORECASE)
+
+    messages.append(HumanMessage(content=resolved_message))
 
     try:
         response = await llm.ainvoke(messages)

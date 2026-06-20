@@ -121,6 +121,10 @@ interface IDEStore {
   language:   string;
   errors:     number;
   warnings:   number;
+  projectSelectorOpen: boolean;
+  projectSelectorMode: 'list' | 'create';
+  isRunningCode: boolean;
+  terminalInputToSend: string | null;
 
   // ── UI Actions ──────────────────────────────────────────────────────────────
   toggleSidebar:      () => void;
@@ -141,6 +145,11 @@ interface IDEStore {
   setSecurityScore:   (score: number) => void;
   setCursor:          (line: number, col: number) => void;
   clearEvents:        () => void;
+  setProjectSelectorOpen: (open: boolean) => void;
+  setProjectSelectorMode: (mode: 'list' | 'create') => void;
+  setIsRunningCode: (running: boolean) => void;
+  sendTerminalInput: (data: string) => void;
+  clearTerminalInput: () => void;
 
   // ── Project Actions ─────────────────────────────────────────────────────────
   loadProjects:        () => Promise<void>;
@@ -368,6 +377,10 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   activePanelTab:     "codesentinel",
   panelHeight:        320,
   terminalSessionId:  typeof crypto !== "undefined" ? crypto.randomUUID() : `term-${Date.now()}`,
+  projectSelectorOpen: false,
+  projectSelectorMode: 'list',
+  isRunningCode:      false,
+  terminalInputToSend: null,
 
   // Pipeline
   pipelineEvents: [
@@ -503,7 +516,12 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 
   setPanelOpen:      (open) => set({ panelOpen: open }),
   setActivePanelTab: (tab)  => set({ activePanelTab: tab }),
-  setPanelHeight:    (h)    => set({ panelHeight: h }),
+  setPanelHeight:     (h)    => set({ panelHeight: h }),
+  setProjectSelectorOpen: (open) => set({ projectSelectorOpen: open }),
+  setProjectSelectorMode: (mode) => set({ projectSelectorMode: mode }),
+  setIsRunningCode: (running) => set({ isRunningCode: running }),
+  sendTerminalInput: (data) => set({ terminalInputToSend: data }),
+  clearTerminalInput: () => set({ terminalInputToSend: null }),
 
   addEvent: (event) =>
     set(s => ({
@@ -1069,8 +1087,8 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
           isOpen: true,
           children: [
             {
-              id:       `${projectId}/README.md`,
-              name:     "README.md",
+              id:       `${projectId}/agent.md`,
+              name:     "agent.md",
               type:     "file",
               language: "markdown",
               content:  `# ${projectId}\n\n**Language**: ${project.language}\n\n**Prompt**: ${project.prompt}\n\n_No completed generations yet. Run the pipeline to generate code._`,
@@ -1087,9 +1105,9 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
           newExpanded.add(projectId);
 
           const readmeTab: Tab = {
-            id:       `tab-${projectId}/README.md`,
-            fileId:   `${projectId}/README.md`,
-            fileName: "README.md",
+            id:       `tab-${projectId}/agent.md`,
+            fileId:   `${projectId}/agent.md`,
+            fileName: "agent.md",
             language: "markdown",
             content:  placeholderNode.children![0].content!,
           };
@@ -1100,7 +1118,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
             expandedFolders: newExpanded,
             tabs:            [...baseTabs, readmeTab],
             activeTabId:     readmeTab.id,
-            selectedFileId:  `${projectId}/README.md`,
+            selectedFileId:  `${projectId}/agent.md`,
           };
         });
         return;

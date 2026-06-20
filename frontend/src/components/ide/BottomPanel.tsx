@@ -870,7 +870,11 @@ export default function BottomPanel() {
     const selectedFileRelativePath = hasSelectedFile ? activeTab.fileId.replace(`${activeProjectId}/`, "") : undefined;
     const currentContent = activeTab?.content ?? "";
 
-    if (selectedFileRelativePath && currentContent.trim().length > 0) {
+    const lowerPrompt = prompt.toLowerCase();
+    const hasMentionUpdate = lowerPrompt.includes("update this current code");
+    const hasMentionFilePattern = /@\[[^\]]+\]/.test(prompt);
+
+    if (selectedFileRelativePath && currentContent.trim().length > 0 && (hasMentionUpdate || hasMentionFilePattern)) {
       // Code is present in current file, we must confirm from the user
       setConfirmData({ prompt, fileRelativePath: selectedFileRelativePath });
     } else {

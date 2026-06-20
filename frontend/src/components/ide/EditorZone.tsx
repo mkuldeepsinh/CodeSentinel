@@ -163,7 +163,7 @@ function EditorToolbar({
         return `python3 ${fileName}`;
       }
       if (l === "typescript" || l === "ts" || fileName.endsWith(".ts")) {
-        return `npx ts-node ${fileName}`;
+        return `npx tsx ${fileName}`;
       }
       return `node ${fileName}`;
     };

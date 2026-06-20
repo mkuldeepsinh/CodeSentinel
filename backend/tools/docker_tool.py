@@ -79,6 +79,8 @@ def _image_for_language(lang: str) -> str:
 def _exec_cmd_for_language(lang: str) -> str:
     if lang in ("python", "py"):
         return "python3"
+    if lang in ("typescript", "ts"):
+        return "npx -y tsx"
     return "node"
 
 
@@ -178,6 +180,8 @@ def run_code_in_container(
             from tools.code_utils import extract_npm_packages
             all_code = "\n".join(files_map.values()) if files_map else code
             pkgs = extract_npm_packages(all_code)
+            if lang in ("typescript", "ts") and "tsx" not in pkgs:
+                pkgs.append("tsx")
             if pkgs:
                 install_result = container.exec_run(
                     f"npm install --no-audit --no-fund {' '.join(pkgs)}",
@@ -309,6 +313,41 @@ class DockerTerminalSession:
             full_path = f"{workdir}/{filepath}"
             _ensure_parent_dir(self.container, full_path)
             _write_file_to_container(self.container, full_path, content)
+
+        # ── Auto-install package dependencies ──────────────────────────────────
+        js_code = []
+        py_code = []
+        for filepath, content in files.items():
+            ext = filepath.split(".")[-1].lower()
+            if ext in ("js", "ts", "jsx", "tsx"):
+                js_code.append(content)
+            elif ext in ("py",):
+                py_code.append(content)
+
+        if js_code:
+            from tools.code_utils import extract_npm_packages
+            all_js = "\n".join(js_code)
+            pkgs = extract_npm_packages(all_js)
+            has_ts = any(filepath.endswith(".ts") or filepath.endswith(".tsx") for filepath in files.keys())
+            if has_ts and "tsx" not in pkgs:
+                pkgs.append("tsx")
+            if pkgs:
+                print(f"[DockerTerminalSession] Auto-installing npm packages: {pkgs}")
+                self.container.exec_run(
+                    f"npm install --no-audit --no-fund {' '.join(pkgs)}",
+                    workdir=workdir,
+                )
+        
+        if py_code:
+            from tools.code_utils import extract_python_packages
+            all_py = "\n".join(py_code)
+            py_pkgs = extract_python_packages(all_py)
+            if py_pkgs:
+                print(f"[DockerTerminalSession] Auto-installing python packages: {py_pkgs}")
+                self.container.exec_run(
+                    f"pip install --quiet {' '.join(py_pkgs)}",
+                    workdir=workdir,
+                )
 
     def resize(self, cols: int, rows: int):
         """Resize the PTY."""

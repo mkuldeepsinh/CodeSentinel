@@ -743,7 +743,7 @@ export default function BottomPanel() {
           if (ext === "py" || activeLanguage === "python") {
             command = `python3 ${filename}`;
           } else if (ext === "ts" || activeLanguage === "typescript") {
-            command = `npx ts-node ${filename}`;
+            command = `npx tsx ${filename}`;
           } else {
             command = `node ${filename}`;
           }

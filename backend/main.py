@@ -17,7 +17,7 @@ from tracing import setup_tracing, get_run_metadata, get_run_tags
 # Database and embeddings imports
 from database import (
     init_db,
-    get_project,
+    get_project as db_get_project,
     get_all_projects,
     get_project_generations,
     find_similar_generation,
@@ -29,6 +29,24 @@ from database import (
     get_user_by_email
 )
 from embeddings import get_embedding
+
+def get_project(project_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if project_id == "default" and user_id:
+        proj = db_get_project("default", user_id=user_id)
+        if not proj:
+            try:
+                create_project(
+                    project_id="default",
+                    name="Default Workspace",
+                    prompt="Default general workspace.",
+                    language="javascript",
+                    user_id=user_id
+                )
+                proj = db_get_project("default", user_id=user_id)
+            except Exception as e:
+                print(f"main.py WARNING: Failed to auto-create default project: {e}")
+        return proj
+    return db_get_project(project_id, user_id=user_id)
 
 # Load environment variables first so tracing vars are available
 load_dotenv(find_dotenv())

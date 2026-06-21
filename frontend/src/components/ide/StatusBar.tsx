@@ -57,7 +57,7 @@ export default function StatusBar() {
     
     // Check if name starts with project_ prefix, strip it for check
     const cleanName = name.replace(/^project_/, "");
-    const exists = Array.isArray(projects) ? projects.some(p => p.id.replace(/^project_/, "").toLowerCase() === cleanName.toLowerCase()) : false;
+    const exists = Array.isArray(projects) ? projects.some(p => p && p.id && p.id.replace(/^project_/, "").toLowerCase() === cleanName.toLowerCase()) : false;
     if (exists) {
       alert("A project with this name already exists!");
       return;
@@ -76,7 +76,7 @@ export default function StatusBar() {
     : "var(--accent-red)";
 
   const filteredProjects = Array.isArray(projects) ? projects.filter(p => 
-    p.id.replace("project_", "").toLowerCase().includes(searchQuery.toLowerCase())
+    p && p.id && p.id.replace("project_", "").toLowerCase().includes(searchQuery.toLowerCase())
   ) : [];
 
   return (
@@ -460,6 +460,7 @@ export default function StatusBar() {
                     </div>
                   ) : (
                     filteredProjects.map(p => {
+                      if (!p || !p.id) return null;
                       const isActive = p.id === activeProjectId;
                       const shortName = p.id.replace("project_", "");
                       return (

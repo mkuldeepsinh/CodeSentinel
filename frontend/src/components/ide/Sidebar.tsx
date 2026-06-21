@@ -77,7 +77,7 @@ function TreeNode({
   handleInlineSubmit
 }: TreeNodeProps) {
   const { selectedFileId, expandedFolders, openFile, toggleFolder } = useIDEStore();
-  const isExpanded = expandedFolders.has(node.id);
+  const isExpanded = (expandedFolders instanceof Set) ? expandedFolders.has(node.id) : false;
   const isSelected = selectedFileId === node.id;
   const isFolder   = node.type === "folder";
   const isSentinel = node.name === ".sentinel";

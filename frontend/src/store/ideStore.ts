@@ -916,38 +916,48 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
 
       if (filesMap[".sentinel/pipeline_history.json"]) {
         try {
-          pipelineHistory = JSON.parse(filesMap[".sentinel/pipeline_history.json"]) as PipelineEvent[];
+          const parsed = JSON.parse(filesMap[".sentinel/pipeline_history.json"]);
+          if (Array.isArray(parsed)) {
+            pipelineHistory = parsed;
+          }
         } catch (err) {
           console.error("Failed to parse pipeline history:", err);
         }
       } else if (filesMap[".sentinel/chat_history.json"]) {
         // Fallback for legacy unified format: filter out chat messages
         try {
-          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
-          pipelineHistory = parsed.filter(e => e.node !== "chat");
+          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]);
+          if (Array.isArray(parsed)) {
+            pipelineHistory = parsed.filter(e => e && e.node !== "chat");
+          }
         } catch {}
       }
 
       if (filesMap[".sentinel/chat_history.json"]) {
         try {
-          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]) as PipelineEvent[];
-          chatHistory = parsed.filter(e => e.node === "chat" || !e.node);
+          const parsed = JSON.parse(filesMap[".sentinel/chat_history.json"]);
+          if (Array.isArray(parsed)) {
+            chatHistory = parsed.filter(e => e && (e.node === "chat" || !e.node));
+          }
         } catch (err) {
           console.error("Failed to parse chat history:", err);
         }
       }
 
       // Map parsed timestamps back to Date objects
-      const mapTimestamp = (evt: PipelineEvent) => ({
-        ...evt,
-        timestamp: new Date(evt.timestamp),
-      });
-      const formattedPipeline = pipelineHistory.map(mapTimestamp);
-      const formattedChat = chatHistory.map(mapTimestamp);
+      const mapTimestamp = (evt: PipelineEvent) => {
+        if (!evt) return null;
+        return {
+          ...evt,
+          timestamp: evt.timestamp ? new Date(evt.timestamp) : new Date(),
+        };
+      };
+      const formattedPipeline = pipelineHistory.map(mapTimestamp).filter(Boolean) as PipelineEvent[];
+      const formattedChat = chatHistory.map(mapTimestamp).filter(Boolean) as PipelineEvent[];
 
       // Merge and sort
       const unifiedEvents = [...formattedPipeline, ...formattedChat].sort(
-        (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+        (a, b) => (a.timestamp?.getTime() || 0) - (b.timestamp?.getTime() || 0)
       );
 
       if (unifiedEvents.length > 0) {

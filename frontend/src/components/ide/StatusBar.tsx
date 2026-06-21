@@ -57,7 +57,7 @@ export default function StatusBar() {
     
     // Check if name starts with project_ prefix, strip it for check
     const cleanName = name.replace(/^project_/, "");
-    const exists = projects.some(p => p.id.replace(/^project_/, "").toLowerCase() === cleanName.toLowerCase());
+    const exists = Array.isArray(projects) ? projects.some(p => p.id.replace(/^project_/, "").toLowerCase() === cleanName.toLowerCase()) : false;
     if (exists) {
       alert("A project with this name already exists!");
       return;
@@ -75,9 +75,9 @@ export default function StatusBar() {
     : securityScore >= 50 ? "var(--accent-yellow)"
     : "var(--accent-red)";
 
-  const filteredProjects = projects.filter(p => 
+  const filteredProjects = Array.isArray(projects) ? projects.filter(p => 
     p.id.replace("project_", "").toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ) : [];
 
   return (
     <>

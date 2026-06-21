@@ -98,11 +98,24 @@ def format_files_for_prompt(code: str, language: str) -> str:
         
     return f"Current code:\n```{language}\n{code}\n```"
 
-def extract_json_files(content: str, default_filename: str) -> str:
+def extract_json_files(content, default_filename: str) -> str:
     """
     Parses content to ensure it's a valid JSON files structure.
     If it's raw code, we wrap it in a default file mapping for backward compatibility.
     """
+    if isinstance(content, list):
+        parts = []
+        for c in content:
+            if isinstance(c, dict) and "text" in c:
+                parts.append(c["text"])
+            elif isinstance(c, str):
+                parts.append(c)
+            else:
+                parts.append(str(c))
+        content = "".join(parts)
+    elif not isinstance(content, str):
+        content = str(content) if content is not None else ""
+
     cleaned = content.strip()
     if cleaned.startswith("```json"):
         cleaned = cleaned[7:]

@@ -172,7 +172,7 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 export async function fetchProject(id: string): Promise<Project> {
-  const resp = await fetch(`${API_BASE}/api/projects/${id}`, {
+  const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(id)}`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -181,7 +181,7 @@ export async function fetchProject(id: string): Promise<Project> {
 }
 
 export async function fetchGenerations(projectId: string): Promise<Generation[]> {
-  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+  const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/generations`, {
     cache: "no-store",
     headers: getAuthHeaders(),
   });
@@ -218,7 +218,7 @@ export async function runCode(code: string, language: string): Promise<{
 }
 
 export async function deleteProject(id: string): Promise<{ status: string; message: string }> {
-  const resp = await fetch(`${API_BASE}/api/projects/${id}`, {
+  const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: getAuthHeaders(),
   });

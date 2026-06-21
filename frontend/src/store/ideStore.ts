@@ -236,6 +236,28 @@ function generateSecurityReport(params: CreateProjectParams): string {
     .filter(Boolean);
   const owasps = [...new Set(owaspsRaw)];
 
+  let codePresentation = "";
+  try {
+    const parsed = JSON.parse(finalCode);
+    if (parsed && typeof parsed === "object" && parsed.files) {
+      const entries = Object.entries(parsed.files || {});
+      const codeFiles = entries.filter(([name]) => name !== "security_report.md" && !name.startsWith(".sentinel/"));
+      if (codeFiles.length > 0) {
+        codePresentation = codeFiles.map(([name, content]) => {
+          const ext = (name.split(".").pop() || "").toLowerCase();
+          const fileLang = EXT_LANG[ext] ? EXT_LANG[ext] : language;
+          return `### File: \`${name}\`\n\n\`\`\`${fileLang}\n${content}\n\`\`\``;
+        }).join("\n\n");
+      } else {
+        codePresentation = "_No source code files present._";
+      }
+    } else {
+      codePresentation = `\`\`\`${language}\n${finalCode}\n\`\`\``;
+    }
+  } catch {
+    codePresentation = `\`\`\`${language}\n${finalCode}\n\`\`\``
+  }
+
   return `# Security Audit Report
 
 **Project**: \`${projectId}\`
@@ -273,9 +295,7 @@ ${cwes.length > 0 ? `\n---\n\n## CWE References\n\n${cwes.join(", ")}\n` : ""}${
 
 ## Final Secure Code
 
-\`\`\`${language}
-${finalCode}
-\`\`\`
+${codePresentation}
 `;
 }
 
@@ -644,7 +664,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     filesMap[filePath] = content;
 
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -719,7 +739,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/generations`, {
         headers: getAuthHeaders()
       });
       if (resp.ok) {
@@ -733,7 +753,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     } catch {}
 
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -794,7 +814,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = get().securityScore ?? 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/generations`, {
         headers: getAuthHeaders()
       });
       if (resp.ok) {
@@ -812,7 +832,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const processedCode = JSON.stringify({ files: filesMap });
 
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -1045,7 +1065,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       newExpanded.add(projectId);
 
       // Save the authoritative state of project files back to database
-      fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -1273,7 +1293,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/generations`, {
         headers: getAuthHeaders()
       });
       if (resp.ok) {
@@ -1287,7 +1307,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     } catch {}
 
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -1379,7 +1399,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     let securityScore = 100;
     let findings: SemgrepFinding[] = [];
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generations`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/generations`, {
         headers: getAuthHeaders()
       });
       if (resp.ok) {
@@ -1393,7 +1413,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     } catch {}
 
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}/code`, {
+      await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/code`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
@@ -1485,7 +1505,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const newProjectId = cleanNewName.startsWith("project_") ? cleanNewName : `project_${cleanNewName}`;
 
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/rename`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/rename`, {
         method: "POST",
         headers: getAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ new_id: newProjectId }),

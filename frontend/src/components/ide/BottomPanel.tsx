@@ -742,6 +742,7 @@ export default function BottomPanel() {
     const projectNode = fileTree.find(n => n.id === activeProjectId);
     const filesMap: Record<string, string> = {};
     const extractFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${activeProjectId}/`, "");
         if (
@@ -900,6 +901,7 @@ export default function BottomPanel() {
       const projectNode = fileTree.find(n => n.id === activeProjectId);
       const filesMap: Record<string, string> = {};
       const extractFiles = (node: FileNode) => {
+        if (!node) return;
         if (node.type === "file") {
           const relativePath = node.id.replace(`${activeProjectId}/`, "");
           if (
@@ -985,6 +987,7 @@ export default function BottomPanel() {
         const allFiles: string[] = [];
         const recurse = (nodes: FileNode[]) => {
           for (const node of nodes) {
+            if (!node) continue;
             if (node.type === "file" && node.name !== "security_report.md" && node.name !== ".sentinel") {
               allFiles.push(node.name);
             }

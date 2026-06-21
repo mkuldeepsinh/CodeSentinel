@@ -168,6 +168,7 @@ export default function TerminalTab({ sessionId }: TerminalTabProps) {
           try {
             const filesMap: Record<string, string> = {};
             const extractFiles = (node: FileNode) => {
+              if (!node) return;
               if (node.type === "file") {
                 const relativePath = node.id.replace(`${activeProjectId}/`, "");
                 if (

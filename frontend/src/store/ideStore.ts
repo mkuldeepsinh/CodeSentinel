@@ -623,6 +623,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const filesMap: Record<string, string> = {};
 
     const extractFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
         if (
@@ -696,6 +697,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const filesMap: Record<string, string> = {};
 
     const extractFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
         if (node.id === `${projectId}/${filePath}`) {
@@ -744,7 +746,8 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
       if (resp.ok) {
         set(s => {
           const updateTreeNode = (nodes: FileNode[]): FileNode[] => {
-            return nodes.map(node => {
+            return (nodes || []).map(node => {
+              if (!node) return node;
               if (node.id === `${projectId}/${filePath}`) {
                 return { ...node, content };
               }
@@ -768,6 +771,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const filesMap: Record<string, string> = {};
 
     const extractAllFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
         filesMap[relativePath] = node.content ?? "";
@@ -1252,6 +1256,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const isTargetFolder = (id: string) => id.startsWith(`${nodeId}/`);
 
     const extractFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
         if (!isTargetFile(node.id) && !isTargetFolder(node.id)) {
@@ -1351,6 +1356,7 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
     const isTargetFolder = (id: string) => id.startsWith(`${nodeId}/`);
 
     const extractAndRenameFiles = (node: FileNode) => {
+      if (!node) return;
       if (node.type === "file") {
         const relativePath = node.id.replace(`${projectId}/`, "");
         if (isTargetFile(node.id)) {

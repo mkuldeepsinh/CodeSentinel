@@ -320,7 +320,7 @@ function TreeNode({
           )}
 
           {node.children
-            ?.filter(child => child.name !== ".keep" && child.name !== ".DS_Store")
+            ?.filter(child => child && child.name && child.name !== ".keep" && child.name !== ".DS_Store")
             .map(child => (
               <TreeNode 
                 key={child.id} 
@@ -372,8 +372,8 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
 
   // Try to find the best score stored in the file tree for this project
   const projectNode = fileTree.find(n => n.id === project.id);
-  const sentinelNode = projectNode?.children?.find(c => c.name === ".sentinel");
-  const scoreFile = sentinelNode?.children?.find(c => c.name === "score_history.json");
+  const sentinelNode = projectNode?.children?.find(c => c && c.name === ".sentinel");
+  const scoreFile = sentinelNode?.children?.find(c => c && c.name === "score_history.json");
   let topScore: number | null = null;
   if (scoreFile?.content) {
     try {

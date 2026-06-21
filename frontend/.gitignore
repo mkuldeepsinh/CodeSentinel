@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# wrangler / open-next
+.open-next
+.wrangler
+.dev.vars
+

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
@@ -14,6 +16,7 @@
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-python": "^6.2.1",
+    "@opennextjs/cloudflare": "^1.19.11",
     "@uiw/codemirror-theme-tokyo-night": "^4.25.10",
     "@uiw/react-codemirror": "^4.25.10",
     "@xterm/addon-fit": "^0.11.0",
@@ -33,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.103.0"
   }
 }

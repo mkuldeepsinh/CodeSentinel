@@ -4,6 +4,7 @@ import { useIDEStore, FileNode } from "@/store/ideStore";
 import { useAuthStore } from "@/store/authStore";
 import { Project } from "@/lib/api";
 import { getLanguageLabel } from "@/lib/languages";
+import { API_BASE } from "@/lib/config";
 import {
   ChevronRight,
   ChevronDown,
@@ -1005,7 +1006,7 @@ export default function Sidebar() {
           <p style={{ fontSize: 12, color: "var(--text-disabled)" }}>Theme: Token Night</p>
           <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-disabled)" }}>
             Backend: <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent-yellow)" }}>
-              http://localhost:8000
+              {API_BASE}
             </code>
           </p>
 

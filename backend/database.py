@@ -25,14 +25,18 @@ def init_db():
     if USE_POSTGRES:
         print("database.py: Initialising PostgreSQL (Supabase) database...")
         try:
+            # Enable the pgvector extension in a separate connection/transaction
+            try:
+                with psycopg.connect(DATABASE_URL) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                    conn.commit()
+            except Exception as ve:
+                print(f"database.py WARNING: Failed to enable vector extension: {ve}")
+
+            # Initialize tables in a clean connection/transaction
             with psycopg.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:
-                    # Enable the pgvector extension if it exists
-                    try:
-                        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-                    except Exception as ve:
-                        print(f"database.py WARNING: Failed to enable vector extension: {ve}")
-                    
                     # Create users table
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS users (
@@ -55,16 +59,20 @@ def init_db():
                             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                         );
                     """)
+                conn.commit()
                     
-                    # Add user_id column to projects if it does not exist (migration)
-                    try:
+            # Add user_id column to projects if it does not exist (migration in separate transaction)
+            try:
+                with psycopg.connect(DATABASE_URL) as conn:
+                    with conn.cursor() as cur:
                         cur.execute("ALTER TABLE projects ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE;")
-                    except Exception:
-                        pass
+                    conn.commit()
+            except Exception:
+                pass
 
-                    # Create generations table
-                    # Note: We use TEXT for findings and store serialized JSON for uniformity,
-                    # but PostgreSQL supports JSONB which we fallback to.
+            # Create generations table in a clean connection/transaction
+            with psycopg.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS generations (
                             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

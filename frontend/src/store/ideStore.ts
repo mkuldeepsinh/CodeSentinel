@@ -199,25 +199,49 @@ function generateSecurityReport(params: CreateProjectParams): string {
   } = params;
 
   const timestamp  = new Date().toLocaleString();
-  const scoreTrail = scoreHistory.length > 0
-    ? scoreHistory.join(" → ")
-    : String(securityScore);
+  const scoreHistoryArr = Array.isArray(scoreHistory) ? scoreHistory : [];
+  const scoreTrail = scoreHistoryArr.length > 0
+    ? scoreHistoryArr.join(" → ")
+    : String(securityScore ?? 100);
 
-  const findingsText = findings.length > 0
-    ? findings
-        .map(f => `- **${f.severity}** \`${f.check_id}\`${f.path ? ` in \`${f.path}\`` : ""}: ${f.message} (line ${f.line})`)
+  const findingsArr = Array.isArray(findings) ? findings.filter(Boolean) : [];
+  const findingsText = findingsArr.length > 0
+    ? findingsArr
+        .map(f => {
+          const severity = f.severity || "INFO";
+          const check_id = f.check_id || "finding";
+          const pathText = f.path ? ` in \`${f.path}\`` : "";
+          const message = f.message || "No description provided.";
+          const line = typeof f.line !== "undefined" ? f.line : 0;
+          return `- **${severity}** \`${check_id}\`${pathText}: ${message} (line ${line})`;
+        })
         .join("\n")
     : "_No vulnerabilities found._";
 
-  const cwes   = [...new Set(findings.flatMap(f => f.cwe))];
-  const owasps = [...new Set(findings.flatMap(f => f.owasp))];
+  const cwesRaw = findingsArr
+    .flatMap(f => {
+      if (Array.isArray(f.cwe)) return f.cwe;
+      if (typeof f.cwe === "string") return [f.cwe];
+      return [];
+    })
+    .filter(Boolean);
+  const cwes = [...new Set(cwesRaw)];
+
+  const owaspsRaw = findingsArr
+    .flatMap(f => {
+      if (Array.isArray(f.owasp)) return f.owasp;
+      if (typeof f.owasp === "string") return [f.owasp];
+      return [];
+    })
+    .filter(Boolean);
+  const owasps = [...new Set(owaspsRaw)];
 
   return `# Security Audit Report
 
 **Project**: \`${projectId}\`
 **Generated**: ${timestamp}
 **Language**: ${language}
-**Final Score**: ${securityScore}/100
+**Final Score**: ${securityScore ?? 100}/100
 **Verdict**: ${verdict === "clean" ? "✅ Clean" : "⚠️ Fixed"}
 
 ---

@@ -224,9 +224,9 @@ function PipelineProgress() {
         <NodePill key={node} node={node} status={nodeStatuses[node] ?? "idle"} />
       ))}
       {securityScore !== null && <ScoreBadge score={securityScore} />}
-      {scoreHistory.length >= 2 && (
+      {(scoreHistory || []).length >= 2 && (
         <div style={{ marginLeft: 4, display: "flex", alignItems: "center" }}>
-          <ScoreSparkline history={scoreHistory} />
+          <ScoreSparkline history={scoreHistory || []} />
         </div>
       )}
     </div>

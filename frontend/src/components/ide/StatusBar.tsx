@@ -257,7 +257,7 @@ export default function StatusBar() {
               id="statusbar-score"
               className="statusbar-item"
               style={{ color: scoreColor, gap: 4 }}
-              title={`Security score: ${securityScore}/100 (${scoreHistory.length} iterations)`}
+              title={`Security score: ${securityScore}/100 (${(scoreHistory || []).length} iterations)`}
             >
               <Zap size={11} />
               Score: {securityScore}/100

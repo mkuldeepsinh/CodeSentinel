@@ -601,6 +601,13 @@ export default function Home() {
   const { user, setAuthModalOpen } = useAuthStore();
   const router = useRouter();
 
+  useEffect(() => {
+    const hasToken = typeof window !== "undefined" && localStorage.getItem("codesentinel_token");
+    if (user || hasToken) {
+      router.push("/ide");
+    }
+  }, [user, router]);
+
   const handleLaunchIDE = (e: React.MouseEvent) => {
     e.preventDefault();
     if (user) {

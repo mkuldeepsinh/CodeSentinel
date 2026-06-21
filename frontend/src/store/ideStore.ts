@@ -388,6 +388,31 @@ function buildProjectTree(params: CreateProjectParams): FileNode {
 }
 
 
+export function normalizeMessage(msg: any): string {
+  if (msg === undefined || msg === null) return "";
+  if (typeof msg === "string") return msg;
+  
+  if (Array.isArray(msg)) {
+    return msg
+      .map(item => {
+        if (typeof item === "object" && item !== null) {
+          return "text" in item ? String((item as any).text) : JSON.stringify(item);
+        }
+        return String(item);
+      })
+      .join("\n");
+  }
+  
+  if (typeof msg === "object") {
+    if ("text" in msg) {
+      return String((msg as any).text);
+    }
+    return JSON.stringify(msg);
+  }
+  
+  return String(msg);
+}
+
 const LIVE_TAB_ID = "tab-live-preview";
 let saveTimeout: NodeJS.Timeout | null = null;
 
@@ -567,13 +592,19 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
   sendTerminalInput: (data) => set({ terminalInputToSend: data }),
   clearTerminalInput: () => set({ terminalInputToSend: null }),
 
-  addEvent: (event) =>
+  addEvent: (event) => {
     set(s => ({
       pipelineEvents: [
         ...s.pipelineEvents,
-        { ...event, id: `evt-${Date.now()}-${Math.random()}`, timestamp: new Date() },
+        {
+          ...event,
+          message: normalizeMessage(event.message),
+          id: `evt-${Date.now()}-${Math.random()}`,
+          timestamp: new Date()
+        },
       ],
-    })),
+    }));
+  },
 
   setStreaming:        (v)           => set({ isStreaming: v }),
   setNodeStatus:      (node, status) => set(s => ({ nodeStatuses: { ...s.nodeStatuses, [node]: status } })),
@@ -992,11 +1023,12 @@ export const useIDEStore = create<IDEStore>((set, get) => ({
         }
       }
 
-      // Map parsed timestamps back to Date objects
+      // Normalize messages and map parsed timestamps back to Date objects
       const mapTimestamp = (evt: PipelineEvent) => {
         if (!evt) return null;
         return {
           ...evt,
+          message: normalizeMessage(evt.message),
           timestamp: evt.timestamp ? new Date(evt.timestamp) : new Date(),
         };
       };

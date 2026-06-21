@@ -122,12 +122,32 @@ function EventMessage({ event }: { event: PipelineEvent }) {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 
-  const renderContent = (msg: string) => {
+  const renderContent = (msg: any): React.ReactNode => {
+    if (typeof msg !== "string" && msg !== undefined && msg !== null) {
+      if (Array.isArray(msg)) {
+        return msg.map((item, idx) => (
+          <span key={idx}>
+            {typeof item === "object" && item !== null && "text" in item
+              ? renderContent((item as any).text)
+              : renderContent(item)}
+          </span>
+        ));
+      }
+      if (typeof msg === "object") {
+        if ("text" in msg) {
+          return renderContent((msg as any).text);
+        }
+        return <span>{JSON.stringify(msg)}</span>;
+      }
+      return <span>{String(msg)}</span>;
+    }
+
+    const strMsg = msg ?? "";
     const codeRegex = /```(\w+)?\n?([\s\S]*?)```/g;
     const parts: React.ReactNode[] = [];
     let lastIdx = 0, m;
-    while ((m = codeRegex.exec(msg)) !== null) {
-      if (m.index > lastIdx) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{msg.slice(lastIdx, m.index)}</span>);
+    while ((m = codeRegex.exec(strMsg)) !== null) {
+      if (m.index > lastIdx) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{strMsg.slice(lastIdx, m.index)}</span>);
       parts.push(
         <pre key={m.index} className="cli-code-block">
           <code>{m[2].trim()}</code>
@@ -135,8 +155,8 @@ function EventMessage({ event }: { event: PipelineEvent }) {
       );
       lastIdx = m.index + m[0].length;
     }
-    if (lastIdx < msg.length) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{msg.slice(lastIdx)}</span>);
-    return parts.length > 0 ? parts : <span style={{ whiteSpace: "pre-wrap" }}>{msg}</span>;
+    if (lastIdx < strMsg.length) parts.push(<span key={lastIdx} style={{ whiteSpace: "pre-wrap" }}>{strMsg.slice(lastIdx)}</span>);
+    return parts.length > 0 ? parts : <span style={{ whiteSpace: "pre-wrap" }}>{strMsg}</span>;
   };
 
   if (isSystem) {
@@ -144,7 +164,7 @@ function EventMessage({ event }: { event: PipelineEvent }) {
       <div className="cli-line">
         <span className="cli-timestamp">[{time}]</span>
         <span className="cli-system-icon">ℹ</span>
-        <span className="cli-system-text">{event.message}</span>
+        <span className="cli-system-text">{renderContent(event.message)}</span>
       </div>
     );
   }
@@ -154,7 +174,7 @@ function EventMessage({ event }: { event: PipelineEvent }) {
       <div className="cli-line">
         <span className="cli-timestamp">[{time}]</span>
         <span className="cli-prompt-indicator">$›</span>
-        <span className="cli-user-text">{event.message}</span>
+        <span className="cli-user-text">{renderContent(event.message)}</span>
       </div>
     );
   }

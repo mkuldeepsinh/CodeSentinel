@@ -104,6 +104,12 @@ async def lifespan(app: FastAPI):
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
             app.state.checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url_with_ka)
             app.state.checkpointer = await app.state.checkpointer_ctx.__aenter__()
+            
+            # Disable psycopg prepared statements for compatibility with PgBouncer/Supabase transaction mode poolers
+            if hasattr(app.state.checkpointer, "conn") and hasattr(app.state.checkpointer.conn, "prepare_threshold"):
+                app.state.checkpointer.conn.prepare_threshold = None
+                print("FastAPI Lifespan: Disabled prepare_threshold on Postgres checkpointer connection.")
+                
             await app.state.checkpointer.setup()
             print("FastAPI Lifespan: Postgres checkpointer initialized successfully (with keepalive).")
         except Exception as e:

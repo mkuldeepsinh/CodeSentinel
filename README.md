@@ -8,7 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white&style=for-the-badge)](https://fastapi.tiangolo.com/)
 [![Docker Sandbox](https://img.shields.io/badge/Docker-Isolation-2496ED?logo=docker&logoColor=white&style=for-the-badge)](https://www.docker.com/)
 
-[![Gemini 2.5](https://img.shields.io/badge/Gemini_2.5-Flash_LLM-4285F4?logo=google-gemini&logoColor=white&style=flat-square)](https://deepmind.google/technologies/gemini/)
+[![Gemini 3.1](https://img.shields.io/badge/Gemini_3.1-Flash_LLM-4285F4?logo=google-gemini&logoColor=white&style=flat-square)](https://deepmind.google/technologies/gemini/)
 [![Semgrep SAST](https://img.shields.io/badge/Semgrep-SAST_Scanner-1E88E5?logo=semgrep&logoColor=white&style=flat-square)](https://semgrep.dev/)
 [![Supabase](https://img.shields.io/badge/Supabase-Database-3ECF8E?logo=supabase&logoColor=white&style=flat-square)](https://supabase.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?logo=sqlite&logoColor=white&style=flat-square)](https://www.sqlite.org/)
@@ -112,8 +112,18 @@ To display web applications running inside the container (e.g. port 3000 Node.js
 3. **Cookie Redirection**: Rewrites Cookie `Path` headers to align with the proxy base path `/api/terminal/{session_id}/proxy/`, preserving application sessions.
 4. **Relative Path Alignment**: Intercepts HTML streams and injects `<base href="/api/terminal/{session_id}/proxy/" />` within the HTML `<head>`. This forces the browser to load relative CSS, images, and bundles correctly.
 
-### 2. Full PTY Terminal Streaming
-Provides terminal access directly inside Next.js using **Xterm.js** and a WebSocket-based Linux PTY connection. Code modifications in the IDE editor instantly synchronize into the container file structure (`/app/index.js`), updating the terminal workspace instantly.
+### 2. Full PTY Terminal WebSocket Tunneling
+To provide terminal command-line access inside Next.js, CodeSentinel implements a full-duplex communication pipeline between the browser and guest Docker containers using **WebSockets**:
+1. **Frontend Integration**: An **Xterm.js** terminal canvas captures all key events, terminal control codes, and command inputs.
+2. **WebSocket Connection**: The frontend establishes a WebSocket tunnel to `ws://<backend-host>/ws/terminal/{session_id}`.
+3. **PTY Creation & Session Binding**: 
+   - Upon connection, the FastAPI backend spawns a dedicated container (or retrieves the existing one mapped to the `session_id`).
+   - The backend runs a low-level Docker API call `client.api.exec_create(container.id, "/bin/sh", stdin=True, tty=True, ...)` to create a pseudo-terminal PTY session.
+   - It starts the session (`exec_start` with `socket=True`), capturing the raw file descriptor.
+4. **Concurrency Loop**: The backend executes asynchronous threads using `run_in_executor` to poll stdout/stderr streams and push output back to the client websocket. User character entries are immediately sent directly into PTY stdin.
+5. **Special Control Signals**: The WebSocket protocol supports special packet frames:
+   - `__RESIZE__:cols,rows`: Updates the terminal height/width via Docker's resize hook `exec_resize` so columns wrap correctly.
+   - `__LOAD_FILES__:<base64>`: Intercepts files edited inside the browser workspace, base64-decodes them, writes them to the container file tree, and fires compilation/test commands inside the shell automatically.
 
 ### 3. Semantic Cache & RAG Bypass (95% Cosine Similarity check)
 To optimize latency and prevent redundant LLM invocations and sandbox cycles, CodeSentinel features an advanced **vector-based Semantic Cache**:
@@ -132,34 +142,85 @@ To optimize latency and prevent redundant LLM invocations and sandbox cycles, Co
 
 ---
 
-## 🛠️ Technology Stack Breakdown
+## ✨ Features & Core Capabilities
 
-CodeSentinel is powered by an extensive list of tools, packages, and frameworks:
+CodeSentinel incorporates a broad set of features designed to bring ease-of-use and reliability to autonomous vulnerability fixing:
 
-* **LangGraph**: State machine coordinator. Wires node states and models conditional transition logic.
-* **LangChain Core & Expression Language (LCEL)**: Binds variables and structures inputs.
-* **langchain-google-genai**: Model wrapper for ChatGoogleGenerativeAI (`gemini-2.5-flash` & `gemini-2.5-flash-lite`).
-* **Google Generative AI Embeddings**: Uses `models/gemini-embedding-2` to generate 768-dimensional text representations.
-* **Pydantic Validation**: Maps structured agent outputs (`.with_structured_output(TriageOutput)`) to guarantee type safety without regex parsing.
-* **OpenRouter API**: Fallback gateway to model providers (like `qwen/qwen3-coder:free`).
-* **Semgrep Core Engine**: Local terminal scanner evaluating active code paths against configuration profiles (`--config=auto`).
-* **Python Subprocess Wrapper**: Normalizes Semgrep JSON audits into structured logs with CWE classification, OWASP vulnerability indices, code lines, and recommendations.
-* **Docker Python SDK**: Spawns isolated execution environments on-demand.
-* **Alpine Linux (`node:20-alpine`)**: Minimalist ephemeral guest image featuring Node.js, npm, Python3, and shell tools.
-* **Unix PTY & Terminals**: Binds `/bin/sh` or `/bin/bash` internally inside the container to provide dynamic shell execution.
-* **FastAPI**: Main ASGI framework serving REST APIs, websockets, and event streaming.
-* **Uvicorn**: High-performance ASGI web server.
-* **HTTPX**: Non-blocking asynchronous HTTP client managing proxy traffic.
-* **Server-Sent Events (SSE)**: Streams real-time JSON log outputs using `astream_events` (version v2) via FastAPI `StreamingResponse`.
-* **WebSockets**: Feeds real-time full-duplex character transmission for the interactive shell.
-* **PostgreSQL / Supabase**: Primary production database utilizing `psycopg` 3.
-* **pgvector**: Implements native vector similarity queries inside PostgreSQL.
-* **SQLite (`codesentinel_memory.db`)**: Lightweight fallback database used for local deployments.
-* **Pure Python JWT (HMAC-SHA256)**: Hand-crafted token signer leveraging standard `hmac`, `hashlib`, and `base64`.
+### 1. Multi-Agent Security Pipeline
+* **Developer Agent**: Translates natural language requirements into complete Node.js, Python, JavaScript, TypeScript, Go, or Rust programs.
+* **Triage Agent**: Evaluates static analysis warnings to separate true risks from harmless flags, scores the code from `0` to `100`, and provides typed verdicts (`clean` or `fix`).
+* **Synthesizer Agent**: Autonomously writes security patches to resolve confirmed vulnerabilities while retaining the program's primary logic.
+
+### 2. Ephemeral Sandbox Execution
+* **Safe Isolation**: Executes generated code inside a resource-constrained, network-isolated Docker container, protecting the host machine.
+* **Auto-Installed Ecosystem**: Extracts required external modules (npm and pip libraries) from the source code and automatically installs them prior to execution.
+* **Sandbox Dependency Install Timeouts**: Protects sandboxes against infinite hangs caused by network latency or DNS resolution errors with a 30-second BusyBox timeout wrapper.
+
+### 3. Server-Sent Events (SSE) & Keep-Alive Stream Heartbeats
+* **Live Telemetry**: Streams real-time pipeline state updates (`node_start`, `node_end`, `error`, `done`) using a non-blocking asyncio.Queue.
+* **Keep-Alive Pings**: Prevents intermediate proxies (Nginx, AWS ALB) and browser fetch connections from closing during long-running LLM completions or sandbox setups. If 5 seconds elapse without an event, the API automatically streams an SSE comment `: ping\n\n` to reset connection timeout counters.
+
+### 4. Interactive Code Editor & Mobile-Responsive UX
+* **Custom CodeMirror Editor**: Includes themes (Tokyo Night), custom formatting (Prettier), run controls, and one-click vulnerability analysis.
+* **Mobile & Tablet Adaptations**:
+  - **Sidebar Drawer**: Transforms the file tree sidebar into an overlay slide-out panel on narrow screens, complete with a tap-dismiss backdrop.
+  - **Bottom sheets**: Shows the console logs, audit logs, and terminal panels as full-width slide-up bottom sheets on mobile, maximizing screen usability.
+  - **Smart Toolbar**: Automatically collapses text labels on action buttons into clean, square icons to prevent horizontal scrolling on tiny screen displays.
+  - **Scrollable Tabs**: Enables smooth horizontal swiping on editor files and terminal channels.
+
+### 5. Edge Deployment Support (Cloudflare Pages & OpenNext)
+* **Cloudflare Pages Worker**: The frontend workspace is fully configured for deployment at the edge. The project implements standard `wrangler.jsonc` bindings, linking `.open-next/worker.js` and `.open-next/assets` directories.
+* **OpenNext Compiler**: The Next.js code is optimized via `@opennextjs/cloudflare` to run on V8 isolates with `nodejs_compat` compatibility flags.
+
+### 6. User Auth & Persistent Database Models
+* **Custom JWT Session Management**: Built-in stateless JWT token signing utilizing HMAC-SHA256 signature checks.
+* **Secure Salted Credentials**: User passwords are saved securely using PBKDF2 cryptography with 100k SHA-256 iterations.
+* **Single Sign-On (SSO)**: Google Client and GitHub Client OAuth 2.0 authentication flows.
+* **Comprehensive Schema Layout**:
+  - `users`: ID, email, hashed credentials, provider context, timestamps.
+  - `projects`: ID, metadata, target language, prompt details, parent user association.
+  - `generations`: ID, code (JSON files map), security metrics, triage findings list, prompt embedding vector.
+
+---
+
+## 🛠️ Complete Technology Stack
+
+### Backend Framework & Networking
+* **FastAPI**: Main application framework handling JSON REST APIs, WebSocket handshakes, and Server-Sent Event streaming.
+* **Uvicorn**: Asynchronous Server Gateway Interface (ASGI) engine driving backend execution.
+* **HTTPX**: Non-blocking async client managing background proxy redirections.
+* **Server-Sent Events (SSE)**: Delivers live pipeline telemetry using FastAPI's `StreamingResponse`.
+* **WebSockets**: Feeds real-time full-duplex character transmission for the interactive PTY terminal.
+
+### AI & Agent Orchestration
+* **LangGraph**: Orchestrates state transitions, conditional edges, and fallback compilation loops.
+* **LangChain Core & Expression Language (LCEL)**: Binds variables and coordinates prompt execution.
+* **langchain-google-genai**: Model wrapper for ChatGoogleGenerativeAI (defaulting to the state-of-the-art **Gemini 3.1 Flash-Lite** active deployment).
+* **Google Generative AI Embeddings**: Generates vector representations using `models/gemini-embedding-2`.
+* **Pydantic**: Guarantees type safety of structured outputs (e.g., triage reports) via `.with_structured_output(TriageOutput)`.
+
+### Sandbox & SAST Security Tools
+* **Docker SDK for Python**: Manages container lifespans on demand.
+* **BusyBox Util**: Limits package installation times and code executions with `timeout`.
+* **Alpine Linux (`node:20-alpine` / `python:3.12-alpine`)**: Lightweight guest OS environments supporting NPM/PIP package compilation.
+* **Semgrep Core Engine**: SAST engine running local checks with `--config=auto`.
+* **Python Subprocess Wrapper**: Captures Semgrep findings and maps them to CWE classifications, severity scales, line numbers, and resolutions.
+
+### Storage & Session Management
+* **PostgreSQL / Supabase**: Main production database using `psycopg 3` hooks.
+* **pgvector**: Calculates high-density vector similarities directly in PostgreSQL queries.
+* **SQLite (`codesentinel_memory.db`)**: Fallback database used for local execution.
 * **PBKDF2 Password Hasher**: Salt-backed password hashing executing 100k SHA-256 iterations.
-* **OAuth 2.0 Client Pools**: Integration hooks enabling Google Client and GitHub Client SSO workflows.
-* **UIW React CodeMirror**: High-performance text editor loaded with the Tokyo Night dark-mode theme.
+* **OAuth 2.0 Client Pools**: Google and GitHub SSO handlers.
+* **Pure Python JWT (HMAC-SHA256)**: Hand-crafted token signer leveraging standard `hmac`, `hashlib`, and `base64`.
+
+### Frontend Application
+* **Next.js (v16.2.9)**: Main React framework.
+* **Zustand**: Lightweight global store managing tabs, file tree models, cursor positioning, and socket states.
+* **UIW React CodeMirror**: High-performance dark mode editor wrapper for Tokyo Night theme.
 * **Xterm.js**: Frontend terminal component capturing input streams and rendering PTY outputs.
+* **Lucide React**: Modern iconography toolkit.
+* **OpenNext & Wrangler**: Cloudflare Pages compilation and edge deployment hooks.
 
 ---
 
@@ -188,15 +249,15 @@ Create a `.env` configuration file in the project root (and inside the `/backend
 ```bash
 cp env.example .env
 ```
-Provide the required keys:
+Provide the required keys (CodeSentinel is tuned to run on the latest Google Gemini models):
 ```env
 GOOGLE_API_KEY=AIzaSy...              # Google Gemini API key
 E2B_API_KEY=unused                    # Docker local fallback handles VM actions
 MAX_DEV_RETRIES=3
 MAX_SEC_ITERATIONS=3
-DEVELOPER_MODEL=gemini-2.5-flash-lite
-TRIAGE_MODEL=gemini-2.5-flash
-SYNTHESIZER_MODEL=gemini-2.5-flash
+DEVELOPER_MODEL=gemini-3.1-flash-lite
+TRIAGE_MODEL=gemini-3.1-flash-lite
+SYNTHESIZER_MODEL=gemini-3.1-flash-lite
 ```
 
 ### Step 2: Install Backend Dependencies

@@ -353,6 +353,8 @@ function WebPreviewPanel() {
 
   useEffect(() => {
     let active = true;
+    let timerId: any = null;
+
     const fetchPorts = async () => {
       try {
         const response = await fetch(`${API_BASE}/api/terminal/${terminalSessionId}/ports`, {
@@ -366,17 +368,27 @@ function WebPreviewPanel() {
             const url = `${API_BASE}/api/terminal/${terminalSessionId}/proxy/`;
             setUrlInput(url);
             setIframeUrl(url);
+            if (timerId) {
+              clearInterval(timerId);
+              timerId = null;
+            }
           }
         }
       } catch (err) {
         console.error("Failed to fetch terminal ports:", err);
       }
     };
+
     if (terminalSessionId) {
       fetchPorts();
+      timerId = setInterval(fetchPorts, 2000);
     }
+
     return () => {
       active = false;
+      if (timerId) {
+        clearInterval(timerId);
+      }
     };
   }, [terminalSessionId]);
 
@@ -394,6 +406,7 @@ function WebPreviewPanel() {
     setIframeUrl(target);
   };
 
+  const isUrlDefault = iframeUrl.startsWith("http://localhost:3001");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", background: "#0d1117" }}>
@@ -450,7 +463,6 @@ function WebPreviewPanel() {
           <ExternalLink size={12} />
         </a>
 
-
         <form onSubmit={handleGo} style={{ flex: 1, display: "flex" }}>
           <input
             type="text"
@@ -473,17 +485,48 @@ function WebPreviewPanel() {
 
       {/* Frame view */}
       <div style={{ flex: 1, width: "100%", background: "#ffffff", position: "relative" }}>
-        <iframe
-          key={key}
-          src={iframeUrl}
-          style={{
-            width: "100%",
-            height: "100%",
-            border: "none",
-            background: "#ffffff",
-          }}
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-        />
+        {isUrlDefault ? (
+          <div style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "#0d1117",
+            color: "var(--text-bright)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            padding: 24,
+            textAlign: "center"
+          }}>
+            <RotateCw size={24} style={{ color: "var(--accent-default)", animation: "spin 1.5s linear infinite" }} />
+            <div style={{ fontSize: 13, fontWeight: "bold" }}>Web Preview Pending</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", maxWidth: 340 }}>
+              Start your server inside the terminal tab (e.g., run <code>npm run dev</code> or start your app on port 3000) to view the live preview here.
+            </div>
+            <style dangerouslySetInnerHTML={{__html: `
+              @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+            `}} />
+          </div>
+        ) : (
+          <iframe
+            key={key}
+            src={iframeUrl}
+            style={{
+              width: "100%",
+              height: "100%",
+              border: "none",
+              background: "#ffffff",
+            }}
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+          />
+        )}
       </div>
     </div>
   );

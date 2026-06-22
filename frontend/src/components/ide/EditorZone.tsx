@@ -295,7 +295,7 @@ function EditorToolbar({
           {isRunningCode ? (
             <>
               <Square size={11} style={{ fill: "currentColor" }} />
-              Stop Code
+              <span className="toolbar-btn-text">Stop Code</span>
             </>
           ) : (
             <>
@@ -304,7 +304,7 @@ function EditorToolbar({
               ) : (
                 <Play size={11} />
               )}
-              Run Code
+              <span className="toolbar-btn-text">Run Code</span>
             </>
           )}
         </button>
@@ -346,7 +346,7 @@ function EditorToolbar({
             <line x1="15" x2="3" y1="12" y2="12"/>
             <line x1="17" x2="3" y1="18" y2="18"/>
           </svg>
-          Format
+          <span className="toolbar-btn-text">Format</span>
         </button>
 
         <button
@@ -373,7 +373,7 @@ function EditorToolbar({
             ? <Zap size={11} />
             : <ShieldCheck size={11} />
           }
-          {isStreaming ? "Pipeline running…" : "Scan & Secure"}
+          <span className="toolbar-btn-text">{isStreaming ? "Pipeline running…" : "Scan & Secure"}</span>
         </button>
       </div>
     </div>

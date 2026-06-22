@@ -10,7 +10,7 @@ import StatusBar from "./StatusBar";
 import { useCallback, useRef, useState, useEffect } from "react";
 
 export default function IDEShell() {
-  const { sidebarOpen, panelOpen, panelHeight, setPanelHeight } = useIDEStore();
+  const { sidebarOpen, panelOpen, panelHeight, setPanelHeight, toggleSidebar } = useIDEStore();
   const { user, setAuthModalOpen, isAuthModalOpen } = useAuthStore();
   const router = useRouter();
   const [isDragging, setIsDragging] = useState(false);
@@ -101,6 +101,14 @@ export default function IDEShell() {
         cursor: isDragging ? "ns-resize" : undefined,
       }}
     >
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-mobile-backdrop"
+          onClick={() => toggleSidebar()}
+        />
+      )}
+
       {/* Zone 2: Sidebar */}
       <Sidebar />
 

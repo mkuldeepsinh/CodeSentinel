@@ -30,6 +30,26 @@ from database import (
 )
 from embeddings import get_embedding
 
+def _get_serde():
+    try:
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        import inspect
+        sig = inspect.signature(JsonPlusSerializer.__init__)
+        if "allowed_msgpack_modules" in sig.parameters:
+            return JsonPlusSerializer(
+                allowed_msgpack_modules=[
+                    ("graph.state", "TriageOutput"),
+                    ("graph.state", "SemgrepFinding")
+                ]
+            )
+    except Exception:
+        pass
+    try:
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        return JsonPlusSerializer()
+    except Exception:
+        return None
+
 def get_project(project_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if project_id == "default" and user_id:
         proj = db_get_project("default", user_id=user_id)
@@ -120,7 +140,8 @@ async def lifespan(app: FastAPI):
 
         try:
             from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            app.state.checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url_with_ka)
+            serde_inst = _get_serde()
+            app.state.checkpointer_ctx = AsyncPostgresSaver.from_conn_string(db_url_with_ka, serde=serde_inst)
             app.state.checkpointer = await app.state.checkpointer_ctx.__aenter__()
             
             # Disable psycopg prepared statements for compatibility with PgBouncer/Supabase transaction mode poolers
@@ -134,10 +155,12 @@ async def lifespan(app: FastAPI):
             print(f"FastAPI Lifespan WARNING: Failed to initialize Postgres checkpointer: {e}")
             print("FastAPI Lifespan: Falling back to MemorySaver.")
             from langgraph.checkpoint.memory import MemorySaver
-            app.state.checkpointer = MemorySaver()
+            serde_inst = _get_serde()
+            app.state.checkpointer = MemorySaver(serde=serde_inst)
     else:
         from langgraph.checkpoint.memory import MemorySaver
-        app.state.checkpointer = MemorySaver()
+        serde_inst = _get_serde()
+        app.state.checkpointer = MemorySaver(serde=serde_inst)
         print("FastAPI Lifespan: Using MemorySaver for state checkpointing.")
 
     # Compile graph once at startup with the checkpointer
@@ -510,7 +533,8 @@ async def event_generator(prompt: str, language: str, project_id: str, code: str
             try:
                 from langgraph.checkpoint.memory import MemorySaver
                 from graph.graph import build_graph
-                app.state.checkpointer = MemorySaver()
+                serde_inst = _get_serde()
+                app.state.checkpointer = MemorySaver(serde=serde_inst)
                 app.state.graph = build_graph(app.state.checkpointer)
                 print("main.py: Supabase drop detected — switched checkpointer to MemorySaver and rebuilt graph.")
             except Exception as rebuild_err:

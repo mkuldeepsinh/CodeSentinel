@@ -1388,3 +1388,135 @@
   border: none;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   HOMEPAGE MOBILE & TABLET RESPONSIVE STYLES (<= 950px)
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (max-width: 950px) {
+  /* 1. Hero Split Column Override */
+  .hp-hero-inner {
+    grid-template-columns: 1fr !important;
+    gap: 3rem !important;
+    text-align: center !important;
+  }
+  
+  .hp-hero-left {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+
+  .hp-hero-badge {
+    margin: 0 auto 1.5rem !important;
+  }
+
+  .hp-hero-desc {
+    margin: 0 auto 2.5rem !important;
+    text-align: center !important;
+  }
+
+  .hp-hero-actions {
+    justify-content: center !important;
+    width: 100% !important;
+  }
+
+  .hp-hero-stats {
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+    gap: 1.5rem 3rem !important;
+    width: 100% !important;
+    max-width: 480px !important;
+  }
+
+  /* 2. Pipeline Visualizer Alignment on Mobile */
+  .hp-pipeline-viz {
+    width: 100% !important;
+    max-width: 450px !important;
+    margin: 0 auto !important;
+  }
+
+  .hp-pipeline-node {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+
+  .hp-node-icon {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 0.65rem !important;
+  }
+
+  /* Adjust connector alignment for the smaller icon */
+  .hp-pipeline-connector {
+    margin-left: 24px !important;
+    height: 16px !important;
+  }
+
+  .hp-node-name {
+    font-size: 0.85rem !important;
+  }
+
+  .hp-node-desc {
+    font-size: 0.72rem !important;
+    line-height: 1.3 !important;
+  }
+
+  .hp-node-status {
+    font-size: 0.65rem !important;
+    padding: 1px 6px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 3. Navigation Links Collapse on Mobile */
+  .hp-nav {
+    margin: 12px 1rem 0 !important;
+    padding: 0 1.25rem !important;
+  }
+
+  .hp-nav-logo-text {
+    font-size: 1.25rem !important;
+  }
+
+  .hp-nav-links li:not(:last-child) {
+    display: none !important;
+  }
+
+  .hp-nav-links {
+    gap: 0 !important;
+  }
+
+  .hp-nav-cta {
+    padding: 0.4rem 0.9rem !important;
+    font-size: 0.75rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* 4. Hide Description in Visualizer on Tiny Screens to Prevent Clipping */
+  .hp-pipeline-viz .hp-node-desc {
+    display: none !important;
+  }
+
+  .hp-pipeline-node {
+    gap: 12px !important;
+  }
+
+  .hp-hero-title {
+    font-size: clamp(2rem, 8vw, 2.6rem) !important;
+    min-height: auto !important; /* Let it flow on small screens */
+  }
+
+  .hp-hero-stats {
+    gap: 1rem 2rem !important;
+  }
+  
+  .hp-hero-stat-val {
+    font-size: 1.5rem !important;
+  }
+  
+  .hp-hero-stat-label {
+    font-size: 0.65rem !important;
+  }
+}
+

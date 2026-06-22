@@ -477,42 +477,81 @@ async def event_generator(prompt: str, language: str, project_id: str, code: str
     ADDITIVE_KEYS = ("stage_events", "score_history", "audit_trail")
 
     try:
-        # astream(stream_mode="updates") yields {node_name: node_output_dict} per step.
-        # This is more reliable than astream_events because it does not depend on
-        # LangGraph internal event-type strings (on_chain_start vs on_node_start etc.)
-        async for chunk in app.state.graph.astream(
-            initial_state,
-            config=run_config,
-            stream_mode="updates",
-        ):
-            for node_name, node_output in chunk.items():
-                if not isinstance(node_output, dict):
-                    continue  # skip non-dict outputs (e.g. interrupt signals)
+        # Run astream in a background task and collect events in a queue.
+        # This allows us to yield periodic keep-alive pings to the client
+        # during long-running nodes (e.g. sandbox_execute, developer_agent)
+        # to prevent proxy (Nginx, AWS ALB, Vercel etc.) and browser timeouts.
+        queue = asyncio.Queue()
 
-                # ── node_start ───────────────────────────────────────────────
-                yield f"event: node_start\ndata: {json.dumps({'node': node_name})}\n\n"
-                await asyncio.sleep(0.05)
+        async def run_astream():
+            try:
+                async for chunk in app.state.graph.astream(
+                    initial_state,
+                    config=run_config,
+                    stream_mode="updates",
+                ):
+                    await queue.put(("chunk", chunk))
+                await queue.put(("done", None))
+            except Exception as stream_err:
+                await queue.put(("error", stream_err))
+            except BaseException as stream_base_err:
+                await queue.put(("error", stream_base_err))
 
-                # Serialize output (Pydantic models → plain dicts)
-                serialized_output = {k: _serialize(v) for k, v in node_output.items()}
+        task = asyncio.create_task(run_astream())
 
-                # Accumulate into final_state
-                for k, v in node_output.items():
-                    if k in ADDITIVE_KEYS:
-                        items = v if isinstance(v, list) else [v]
-                        ser   = [x.model_dump() if hasattr(x, "model_dump") else x for x in items]
-                        final_state[k] = final_state.get(k, []) + ser
-                    else:
-                        final_state[k] = _serialize(v)
+        try:
+            while True:
+                try:
+                    # Wait for the next event with a 5-second timeout.
+                    # Yield a keep-alive ping comment if the timeout expires.
+                    event_type, val = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    
+                    if event_type == "done":
+                        break
+                    elif event_type == "error":
+                        raise val
+                    elif event_type == "chunk":
+                        chunk = val
+                        for node_name, node_output in chunk.items():
+                            if not isinstance(node_output, dict):
+                                continue  # skip non-dict outputs (e.g. interrupt signals)
 
-                # ── node_end ─────────────────────────────────────────────────
-                payload = {"node": node_name, "output": serialized_output}
-                yield f"event: node_end\ndata: {json.dumps(payload)}\n\n"
-                await asyncio.sleep(0.05)
+                            # ── node_start ───────────────────────────────────────────────
+                            yield f"event: node_start\ndata: {json.dumps({'node': node_name})}\n\n"
+                            await asyncio.sleep(0.05)
 
-        # ── done ─────────────────────────────────────────────────────────────
-        # final_state now contains the fully-accumulated pipeline output
-        yield f"event: done\ndata: {json.dumps(final_state)}\n\n"
+                            # Serialize output (Pydantic models → plain dicts)
+                            serialized_output = {k: _serialize(v) for k, v in node_output.items()}
+
+                            # Accumulate into final_state
+                            for k, v in node_output.items():
+                                if k in ADDITIVE_KEYS:
+                                    items = v if isinstance(v, list) else [v]
+                                    ser   = [x.model_dump() if hasattr(x, "model_dump") else x for x in items]
+                                    final_state[k] = final_state.get(k, []) + ser
+                                else:
+                                    final_state[k] = _serialize(v)
+
+                            # ── node_end ─────────────────────────────────────────────────
+                            payload = {"node": node_name, "output": serialized_output}
+                            yield f"event: node_end\ndata: {json.dumps(payload)}\n\n"
+                            await asyncio.sleep(0.05)
+
+                except (asyncio.TimeoutError, TimeoutError):
+                    # Yield standard SSE keep-alive ping comment
+                    yield ": ping\n\n"
+
+            # ── done ─────────────────────────────────────────────────────────────
+            # final_state now contains the fully-accumulated pipeline output
+            yield f"event: done\ndata: {json.dumps(final_state)}\n\n"
+
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     except Exception as e:
         import traceback

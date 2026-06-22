@@ -205,12 +205,12 @@ def run_code_in_container(
                 pkgs.append("tsx")
             if pkgs:
                 install_result = container.exec_run(
-                    f"npm install --no-audit --no-fund {' '.join(pkgs)}",
+                    f"timeout 30 npm install --no-audit --no-fund {' '.join(pkgs)}",
                     workdir="/workspace",
                 )
                 if install_result.exit_code != 0:
                     err_out = (install_result.output or b"").decode("utf-8", errors="replace")
-                    print(f"[docker_tool] npm install warning: {err_out[:200]}")
+                    print(f"[docker_tool] npm install warning (timed out or failed): {err_out[:200]}")
 
         # ── pip install for Python packages ────────────────────────────────────
         if lang in ("python", "py"):
@@ -219,12 +219,12 @@ def run_code_in_container(
             py_pkgs = extract_python_packages(all_code_py)
             if py_pkgs:
                 pip_result = container.exec_run(
-                    f"pip install --quiet {' '.join(py_pkgs)}",
+                    f"timeout 30 pip install --quiet {' '.join(py_pkgs)}",
                     workdir="/workspace",
                 )
                 if pip_result.exit_code != 0:
                     err_out = (pip_result.output or b"").decode("utf-8", errors="replace")
-                    print(f"[docker_tool] pip install warning: {err_out[:200]}")
+                    print(f"[docker_tool] pip install warning (timed out or failed): {err_out[:200]}")
 
         # ── Execute ────────────────────────────────────────────────────────────
         # Wrap execution in BusyBox timeout command to prevent infinite hanging (e.g. servers)
@@ -395,7 +395,7 @@ class DockerTerminalSession:
             if pkgs:
                 print(f"[DockerTerminalSession] Auto-installing npm packages: {pkgs}")
                 self.container.exec_run(
-                    f"npm install --no-audit --no-fund {' '.join(pkgs)}",
+                    f"timeout 30 npm install --no-audit --no-fund {' '.join(pkgs)}",
                     workdir=workdir,
                 )
         
@@ -406,7 +406,7 @@ class DockerTerminalSession:
             if py_pkgs:
                 print(f"[DockerTerminalSession] Auto-installing python packages: {py_pkgs}")
                 self.container.exec_run(
-                    f"pip install --quiet {' '.join(py_pkgs)}",
+                    f"timeout 30 pip install --quiet {' '.join(py_pkgs)}",
                     workdir=workdir,
                 )
 

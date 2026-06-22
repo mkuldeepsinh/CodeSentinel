@@ -294,13 +294,12 @@ function TreeNode({
                   placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
                   value={creatingName}
                   onChange={e => setCreatingName(e.target.value)}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      if (!creatingName.trim()) {
-                        setCreatingNodeId(null);
-                        setCreatingType(null);
-                      }
-                    }, 200);
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setCreatingNodeId(null);
+                      setCreatingName("");
+                      setCreatingType(null);
+                    }
                   }}
                   style={{
                     background: "var(--bg-overlay)",
@@ -668,6 +667,25 @@ export default function Sidebar() {
     }
   }, [creatingNodeId]);
 
+  // Click outside to cancel creation
+  useEffect(() => {
+    if (!creatingNodeId) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const inputEl = document.getElementById("inline-creation-input");
+      if (inputEl && !inputEl.contains(e.target as Node)) {
+        const target = e.target as HTMLElement;
+        if (target.closest("button")?.title?.toLowerCase().includes("new")) {
+          return;
+        }
+        setCreatingNodeId(null);
+        setCreatingName("");
+        setCreatingType(null);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [creatingNodeId]);
+
   // Load projects from backend on mount
   useEffect(() => {
     loadProjects().finally(() => setIsLoadingProjects(false));
@@ -702,7 +720,13 @@ export default function Sidebar() {
   const handleInlineSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = creatingName.trim();
-    if (!name || !activeProjectId || !creatingNodeId) return;
+    if (!name) {
+      setCreatingNodeId(null);
+      setCreatingName("");
+      setCreatingType(null);
+      return;
+    }
+    if (!activeProjectId || !creatingNodeId) return;
 
     setCreatingNodeId(null);
     setCreatingName("");
@@ -815,13 +839,12 @@ export default function Sidebar() {
                       placeholder={creatingType === "folder" ? "folder-name" : "filename.py"}
                       value={creatingName}
                       onChange={e => setCreatingName(e.target.value)}
-                      onBlur={() => {
-                        setTimeout(() => {
-                          if (!creatingName.trim()) {
-                            setCreatingNodeId(null);
-                            setCreatingType(null);
-                          }
-                        }, 200);
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setCreatingNodeId(null);
+                          setCreatingName("");
+                          setCreatingType(null);
+                        }
                       }}
                       style={{
                         background: "var(--bg-overlay)",

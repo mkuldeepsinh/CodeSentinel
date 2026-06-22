@@ -324,6 +324,21 @@ class DockerTerminalSession:
         
         self.port_mappings = ports_to_map
 
+        # Network detection for running in docker (sibling container networking)
+        extra_run_kwargs = {}
+        if os.path.exists("/.dockerenv"):
+            try:
+                import socket as sock_lib
+                hostname = sock_lib.gethostname()
+                this_container = self._client.containers.get(hostname)
+                networks = this_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+                if networks:
+                    network_name = list(networks.keys())[0]
+                    extra_run_kwargs["network"] = network_name
+                    print(f"[docker_tool] Detected backend running in Docker. Using sibling network: {network_name}")
+            except Exception as e:
+                print(f"[docker_tool] Failed to resolve sibling network name: {e}")
+
         self.container = self._client.containers.run(
             self.image,
             command="/bin/sh",
@@ -332,6 +347,7 @@ class DockerTerminalSession:
             tty=True,
             working_dir=workdir,
             ports=ports_to_map,
+            **extra_run_kwargs,
             **RESOURCE_LIMITS,
         )
         self._client.api.exec_create  # ensure api is accessible

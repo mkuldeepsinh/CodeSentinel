@@ -1118,11 +1118,35 @@ async def terminal_proxy(session_id: str, request: Request, path: str = ""):
     if not session:
         return Response(content="Terminal session not found or inactive", status_code=404)
         
+    is_in_docker = os.path.exists("/.dockerenv")
+    
+    container_ip = None
+    if is_in_docker and session.container:
+        try:
+            session.container.reload()
+            # Try to get IP address from default NetworkSettings or custom networks
+            container_ip = session.container.attrs.get("NetworkSettings", {}).get("IPAddress")
+            if not container_ip:
+                networks = session.container.attrs.get("NetworkSettings", {}).get("Networks", {})
+                for net_info in networks.values():
+                    ip = net_info.get("IPAddress")
+                    if ip:
+                        container_ip = ip
+                        break
+        except Exception as e:
+            print(f"terminal_proxy WARNING: Failed to resolve sibling container IP: {e}")
+            
     host_port = session.port_mappings.get("3000/tcp")
-    if not host_port:
-        return Response(content="No active port mapping found for port 3000", status_code=404)
+    
+    if container_ip:
+        target_url = f"http://{container_ip}:3000/{path}"
+        target_host = f"{container_ip}:3000"
+    else:
+        if not host_port:
+            return Response(content="No active port mapping found for port 3000", status_code=404)
+        target_url = f"http://localhost:{host_port}/{path}"
+        target_host = f"localhost:{host_port}"
         
-    target_url = f"http://localhost:{host_port}/{path}"
     # Forward query parameters
     query_params = dict(request.query_params)
     if query_params:
@@ -1131,7 +1155,7 @@ async def terminal_proxy(session_id: str, request: Request, path: str = ""):
         
     # Read headers and modify host
     headers = dict(request.headers)
-    headers["host"] = f"localhost:{host_port}"
+    headers["host"] = target_host
     
     # Exclude connection headers
     exclude_req_headers = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"]

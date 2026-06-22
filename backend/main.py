@@ -180,9 +180,22 @@ app = FastAPI(
 )
 
 # Enable CORS for cross-origin frontend requests
+allowed_origins = [
+    "https://codesentinel-kul.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+env_origins = os.environ.get("ALLOWED_ORIGINS")
+if env_origins:
+    for orig in env_origins.split(","):
+        orig_clean = orig.strip()
+        if orig_clean and orig_clean not in allowed_origins:
+            allowed_origins.append(orig_clean)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -212,7 +225,12 @@ async def auth_signup(request: SignupRequest):
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
     
-    existing = get_user_by_email(email)
+    try:
+        existing = get_user_by_email(email)
+    except Exception as e:
+        print(f"auth_signup user lookup exception: {e}")
+        raise HTTPException(status_code=500, detail="Database error during signup check.")
+        
     if existing:
         raise HTTPException(status_code=400, detail="An account with this email already exists.")
         
@@ -233,12 +251,18 @@ async def auth_signup(request: SignupRequest):
             }
         }
     except Exception as e:
+        print(f"auth_signup user creation exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/auth/login")
 async def auth_login(request: LoginRequest):
     email = request.email.strip().lower()
-    user = get_user_by_email(email)
+    try:
+        user = get_user_by_email(email)
+    except Exception as e:
+        print(f"auth_login user lookup exception: {e}")
+        raise HTTPException(status_code=500, detail="Database lookup failed.")
+        
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
     if user["provider"] != "email":
@@ -266,18 +290,29 @@ async def auth_sso(request: SSORequest):
     if request.provider not in ("google", "github"):
         raise HTTPException(status_code=400, detail="Invalid SSO provider.")
         
-    user = get_user_by_email(email)
+    try:
+        user = get_user_by_email(email)
+    except Exception as e:
+        print(f"auth_sso user lookup exception: {e}")
+        raise HTTPException(status_code=500, detail="Database lookup failed.")
+        
     from auth import create_access_token
     
-    if not user:
-        import uuid
-        user_id = f"user_{str(uuid.uuid4())[:8]}"
-        user = create_user(user_id=user_id, email=email, hashed_password=None, provider=request.provider)
-    elif user["provider"] != request.provider:
-        raise HTTPException(
-            status_code=400,
-            detail=f"This email is already registered via {user['provider'].capitalize()}. Please use that option."
-        )
+    try:
+        if not user:
+            import uuid
+            user_id = f"user_{str(uuid.uuid4())[:8]}"
+            user = create_user(user_id=user_id, email=email, hashed_password=None, provider=request.provider)
+        elif user["provider"] != request.provider:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This email is already registered via {user['provider'].capitalize()}. Please use that option."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"auth_sso database write exception: {e}")
+        raise HTTPException(status_code=500, detail="Database operation failed.")
         
     token = create_access_token({"sub": user["id"], "email": user["email"]})
     return {
@@ -303,12 +338,27 @@ async def verify_google_token(request: GoogleVerifyRequest):
             detail="Google Client ID is not configured on the server. Please set GOOGLE_CLIENT_ID in the environment."
         )
         
-    async with httpx.AsyncClient() as client:
-        # Call Google TokenInfo endpoint to verify the ID token
-        resp = await client.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.id_token}")
-        if resp.status_code != 200:
-            raise HTTPException(status_code=401, detail="Invalid Google authentication token.")
-        payload = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Call Google TokenInfo endpoint to verify the ID token
+            resp = await client.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.id_token}")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid Google authentication token.")
+            payload = resp.json()
+    except httpx.HTTPError as http_err:
+        print(f"Google Token Verification HTTP exception: {http_err}")
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to reach Google token verification service. Please try again."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Google Token Verification unexpected exception: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during Google token verification: {str(e)}"
+        )
         
     # Verify the target audience matches our Client ID
     aud = payload.get("aud")
@@ -319,14 +369,23 @@ async def verify_google_token(request: GoogleVerifyRequest):
     if not email:
         raise HTTPException(status_code=400, detail="Google identity profile does not expose a verified email address.")
         
-    user = get_user_by_email(email)
-    if not user:
-        user_id = f"user_{str(uuid.uuid4())[:8]}"
-        user = create_user(user_id=user_id, email=email, hashed_password=None, provider="google")
-    elif user["provider"] != "google":
+    try:
+        user = get_user_by_email(email)
+        if not user:
+            user_id = f"user_{str(uuid.uuid4())[:8]}"
+            user = create_user(user_id=user_id, email=email, hashed_password=None, provider="google")
+        elif user["provider"] != "google":
+            raise HTTPException(
+                status_code=400,
+                detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Google verify user database operation exception: {e}")
         raise HTTPException(
-            status_code=400,
-            detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
+            status_code=500,
+            detail=f"Database error during Google user lookup/creation: {str(e)}"
         )
         
     token = create_access_token({"sub": user["id"], "email": user["email"]})
@@ -355,64 +414,88 @@ async def verify_github_code(request: GitHubVerifyRequest):
             detail="GitHub Client ID or Client Secret is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
         )
         
-    async with httpx.AsyncClient() as client:
-        # 1. Exchange OAuth code for Access Token
-        token_resp = await client.post(
-            "https://github.com/login/oauth/access_token",
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code": request.code,
-            }
-        )
-        if token_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to complete token exchange with GitHub.")
-            
-        token_data = token_resp.json()
-        access_token = token_data.get("access_token")
-        if not access_token:
-            error_desc = token_data.get("error_description", "Invalid authorization code.")
-            raise HTTPException(status_code=400, detail=error_desc)
-            
-        # 2. Retrieve user identity profile
-        user_resp = await client.get(
-            "https://api.github.com/user",
-            headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
-        )
-        if user_resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to fetch user profile from GitHub.")
-        user_profile = user_resp.json()
-        
-        # 3. Retrieve user email listings (to search primary verified email)
-        emails_resp = await client.get(
-            "https://api.github.com/user/emails",
-            headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
-        )
-        email = None
-        if emails_resp.status_code == 200:
-            emails = emails_resp.json()
-            for email_info in emails:
-                if email_info.get("primary") and email_info.get("verified"):
-                    email = email_info.get("email")
-                    break
-            if not email and emails:
-                email = emails[0].get("email")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # 1. Exchange OAuth code for Access Token
+            token_resp = await client.post(
+                "https://github.com/login/oauth/access_token",
+                headers={"Accept": "application/json"},
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": request.code,
+                }
+            )
+            if token_resp.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to complete token exchange with GitHub.")
                 
-        if not email:
-            email = user_profile.get("email")
-        if not email:
-            username = user_profile.get("login", "github_user")
-            email = f"{username}@users.noreply.github.com"
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                error_desc = token_data.get("error_description", "Invalid authorization code.")
+                raise HTTPException(status_code=400, detail=error_desc)
+                
+            # 2. Retrieve user identity profile
+            user_resp = await client.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
+            )
+            if user_resp.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to fetch user profile from GitHub.")
+            user_profile = user_resp.json()
             
-    user = get_user_by_email(email)
-    if not user:
-        user_id = f"user_{str(uuid.uuid4())[:8]}"
-        user = create_user(user_id=user_id, email=email, hashed_password=None, provider="github")
-    elif user["provider"] != "github":
+            # 3. Retrieve user email listings (to search primary verified email)
+            emails_resp = await client.get(
+                "https://api.github.com/user/emails",
+                headers={"Authorization": f"Bearer {access_token}", "User-Agent": "CodeSentinel"}
+            )
+            email = None
+            if emails_resp.status_code == 200:
+                emails = emails_resp.json()
+                for email_info in emails:
+                    if email_info.get("primary") and email_info.get("verified"):
+                        email = email_info.get("email")
+                        break
+                if not email and emails:
+                    email = emails[0].get("email")
+                    
+            if not email:
+                email = user_profile.get("email")
+            if not email:
+                username = user_profile.get("login", "github_user")
+                email = f"{username}@users.noreply.github.com"
+    except httpx.HTTPError as http_err:
+        print(f"GitHub verify HTTP error: {http_err}")
         raise HTTPException(
-            status_code=400,
-            detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
+            status_code=503,
+            detail="Failed to connect to GitHub authentication service. Please try again."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"GitHub verify unexpected error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during GitHub verification: {str(e)}"
+        )
+        
+    try:
+        user = get_user_by_email(email)
+        if not user:
+            user_id = f"user_{str(uuid.uuid4())[:8]}"
+            user = create_user(user_id=user_id, email=email, hashed_password=None, provider="github")
+        elif user["provider"] != "github":
+            raise HTTPException(
+                status_code=400,
+                detail=f"This email is registered via {user['provider'].capitalize()}. Please use that method."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"GitHub verify user database operation exception: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error during GitHub user lookup/creation: {str(e)}"
         )
         
     token = create_access_token({"sub": user["id"], "email": user["email"]})

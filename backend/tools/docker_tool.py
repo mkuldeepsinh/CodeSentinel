@@ -19,9 +19,16 @@ from typing import Optional
 # installed (import will only fail when a function is actually called).
 try:
     import docker as _docker
-    _docker_client = _docker.from_env()
-except Exception:
-    _docker_client = None  # type: ignore
+    _docker_imported = True
+except ImportError:
+    _docker_imported = False
+    _docker_client = None
+
+if _docker_imported:
+    try:
+        _docker_client = _docker.from_env()
+    except Exception as e:
+        _docker_client = e
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -38,11 +45,18 @@ DEFAULT_TIMEOUT = 60  # seconds for pipeline runs
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _get_client():
-    """Return docker client, raising a clear error if docker-py is unavailable."""
-    if _docker_client is None:
+    """Return docker client, raising a clear error if docker-py is unavailable or daemon is not running."""
+    if not _docker_imported:
         raise RuntimeError(
-            "Docker SDK not available. Install it with: pip install docker"
+            "Docker SDK is not installed. Please run: pip install docker"
         )
+    if isinstance(_docker_client, Exception):
+        raise RuntimeError(
+            f"Cannot connect to the Docker daemon ({_docker_client}). "
+            "Please check if Docker is running/active on your host/server."
+        )
+    if _docker_client is None:
+        raise RuntimeError("Docker client could not be initialized.")
     return _docker_client
 
 

@@ -1,4 +1,4 @@
-# 🛡️ CodeSentinel
+#  CodeSentinel
 ### *LangChain & LangGraph Orchestrated Autonomous DevSecOps Pipeline & Collaborative IDE*
 
 ---

@@ -170,12 +170,116 @@ _IMPORT_TO_PIP: dict = {
 
 def execute_in_sandbox(code: str, language: str = "javascript", timeout: int = 60) -> dict:
     """
-    Docker-backed replacement for E2B sandbox execution.
-    Delegates to docker_tool.run_code_in_container.
-    Signature preserved for backward compatibility with graph/nodes.py.
+    Docker-backed replacement for E2B sandbox execution with self-healing fallback.
+    Tries local Docker container first. If Docker daemon is stopped/unavailable
+    and E2B_API_KEY is set, it falls back to remote E2B sandbox execution.
     """
+    import os
     from tools.docker_tool import run_code_in_container
-    return run_code_in_container(code, language, timeout)
+
+    try:
+        return run_code_in_container(code, language, timeout)
+    except Exception as docker_err:
+        err_str = str(docker_err).lower()
+        is_conn_error = "cannot connect to the docker daemon" in err_str or "docker sdk not available" in err_str
+        e2b_key = os.environ.get("E2B_API_KEY")
+
+        if is_conn_error and e2b_key and e2b_key != "unused" and len(e2b_key.strip()) > 5:
+            print(f"[code_utils] Local Docker daemon not available. Falling back to E2B remote sandbox...")
+            try:
+                from e2b import Sandbox
+                import json
+
+                lang = language.lower().strip()
+                suffix = ".py" if lang in ("python", "py") else ".js"
+                exec_cmd = "python3" if lang in ("python", "py") else "node"
+
+                # Parse files mapping if multi-file JSON
+                files_map = None
+                try:
+                    if code and (code.strip().startswith("{") or code.strip().startswith("[")):
+                        data = json.loads(code)
+                        if isinstance(data, dict) and "files" in data:
+                            files_map = data["files"]
+                except Exception:
+                    pass
+
+                with Sandbox.create(api_key=e2b_key) as sandbox:
+                    if files_map:
+                        entry_file = None
+                        possible_entries = ["main.py", "index.js", "index.ts", "main.go", "main.rs", "app.py", "server.js", "app.js"]
+                        for f in possible_entries:
+                            if f in files_map:
+                                entry_file = f
+                                break
+                        if not entry_file:
+                            for f in files_map.keys():
+                                if f.endswith(suffix):
+                                    entry_file = f
+                                    break
+                            if not entry_file:
+                                entry_file = list(files_map.keys())[0] if files_map else f"index{suffix}"
+
+                        for filepath, file_content in files_map.items():
+                            if filepath == "security_report.md" or filepath.startswith(".sentinel/"):
+                                continue
+                            sandbox_path = f"/home/user/code/{filepath}"
+                            parent_dir = os.path.dirname(filepath)
+                            if parent_dir:
+                                sandbox.commands.run(f"mkdir -p /home/user/code/{parent_dir}")
+                            sandbox.files.write(sandbox_path, file_content)
+                        run_path = f"/home/user/code/{entry_file}"
+                    else:
+                        sandbox_path = f"/home/user/code{suffix}"
+                        sandbox.files.write(sandbox_path, code)
+                        run_path = sandbox_path
+
+                    # Dynamic npm package check & install
+                    if lang in ("javascript", "js", "typescript", "ts"):
+                        from tools.e2b_tool import extract_npm_packages
+                        packages_to_check = set()
+                        if files_map:
+                            for file_content in files_map.values():
+                                packages_to_check.update(extract_npm_packages(file_content))
+                        else:
+                            packages_to_check.update(extract_npm_packages(code))
+
+                        if packages_to_check:
+                            work_dir = "/home/user/code" if files_map else "/home/user"
+                            sandbox.commands.run(f"mkdir -p {work_dir}")
+                            sandbox.commands.run(
+                                f"cd {work_dir} && npm install --no-audit --no-fund {' '.join(packages_to_check)}",
+                                timeout=120
+                            )
+
+                    # Dynamic Python package check & install
+                    if lang in ("python", "py"):
+                        from tools.e2b_tool import extract_python_packages
+                        packages_to_check = set()
+                        if files_map:
+                            for file_content in files_map.values():
+                                packages_to_check.update(extract_python_packages(file_content))
+                        else:
+                            packages_to_check.update(extract_python_packages(code))
+
+                        if packages_to_check:
+                            sandbox.commands.run(f"pip install {' '.join(packages_to_check)}", timeout=120)
+
+                    execution = sandbox.commands.run(f"{exec_cmd} {run_path}", timeout=timeout)
+                    stdout = execution.stdout or ""
+                    stderr = execution.stderr or ""
+                    exit_code = execution.exit_code
+
+                    return {
+                        "success": exit_code == 0 or (exit_code is None and bool(stdout.strip())),
+                        "stdout": stdout,
+                        "stderr": stderr
+                    }
+            except Exception as e2b_err:
+                print(f"[code_utils] E2B fallback execution failed: {e2b_err}")
+                raise docker_err
+        else:
+            raise docker_err
 
 
 def execute_nodejs_in_sandbox(code: str) -> dict:
